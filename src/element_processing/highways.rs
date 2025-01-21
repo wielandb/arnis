@@ -159,8 +159,8 @@ pub fn generate_highways(
                 }
                 _ => {
                     if let Some(lanes) = element.tags().get("lanes") {
-                        if lanes == "2" {
-                            block_range = 3;
+                        if lanes != "1" {
+                            block_range = 3; //guessRoadwayWidth(element.tags());
                             add_stripe = true;
                         } else if lanes != "1" {
                             block_range = 4;
@@ -169,6 +169,22 @@ pub fn generate_highways(
                     }
                 }
             }
+            // If width of the highway is specified, use that instead
+            // (only use width if its in meters, meaning there is nothing but numbers and optionally a dot in the value)
+            // Round the width to the nearest whole number
+            if let Some(width) = element.tags().get("width") {
+                if width.chars().all(|c| c.is_numeric() || c == '.') {
+                    block_range = (width.parse::<f64>().unwrap_or(0.0) / 2.0).round() as i32;
+                }
+            }
+            // If lane_markings=no, don't add stripes
+            if let Some(lane_markings) = element.tags().get("lane_markings") {
+                if lane_markings == "no" {
+                    add_stripe = false;
+                }
+            }
+            // TODO: Really add a number of lanes and the appropriate stripe numbers according to the 'lanes' tag
+            
 
             let ProcessedElement::Way(way) = element else {
                 return;
@@ -191,8 +207,78 @@ pub fn generate_highways(
                     let mut stripe_length: i32 = 0;
                     let dash_length: i32 = 5; // Length of the solid part of the stripe
                     let gap_length: i32 = 5; // Length of the gap part of the stripe
-
+                    let mut draw_right_sidewalk = false;
+                    let mut draw_left_sidewalk = false;
+                    // Check if a right sidewalk should be drawn (sidewalk=right or sidewalk=both or sidewalk:right=yes)
+                    if element.tags().get("sidewalk") == Some(&"right".to_string())
+                        || element.tags().get("sidewalk") == Some(&"both".to_string())
+                        || element.tags().get("sidewalk:right") == Some(&"yes".to_string())
+                    {
+                        draw_right_sidewalk = true;
+                    }
+                    // Check if a left sidewalk should be drawn (sidewalk=left or sidewalk=both or sidewalk:left=yes)
+                    if element.tags().get("sidewalk") == Some(&"left".to_string())
+                        || element.tags().get("sidewalk") == Some(&"both".to_string())
+                        || element.tags().get("sidewalk:left") == Some(&"yes".to_string())
+                    {
+                        draw_left_sidewalk = true;
+                    }
+                    let mut SIDEWALK_WIDTH: i32 = 2;
                     for (x, _, z) in bresenham_points {
+                        // Draw a sidewalk to the left and right of the road (a stone brick half slab)
+                        let is_horizontal_segment: bool = (x2 - x1).abs() >= (z2 - z1).abs();
+                        if draw_right_sidewalk {
+                            if is_horizontal_segment {
+                                for offset in 1..=SIDEWALK_WIDTH {
+                                    editor.set_block(
+                                        STONE_BRICK_SLAB,
+                                        x,
+                                        ground.level(XZPoint::new(x, z)) + 1,
+                                        z - block_range - offset,
+                                        Some(&[BLACK_CONCRETE]),
+                                        None,
+                                    );
+                                }
+                            } else {
+                                for offset in 1..=SIDEWALK_WIDTH {
+                                    editor.set_block(
+                                        STONE_BRICK_SLAB,
+                                        x - block_range - offset,
+                                        ground.level(XZPoint::new(x, z)) + 1,
+                                        z,
+                                        Some(&[BLACK_CONCRETE]),
+                                        None,
+                                    );
+                                }
+                            }
+                        }
+
+                        if draw_left_sidewalk {
+                            if is_horizontal_segment {
+                                for offset in 1..=SIDEWALK_WIDTH {
+                                    editor.set_block(
+                                        STONE_BRICK_SLAB,
+                                        x,
+                                        ground.level(XZPoint::new(x, z)) + 1,
+                                        z + block_range + offset,
+                                        Some(&[BLACK_CONCRETE]),
+                                        None,
+                                    );
+                                }
+                            } else {
+                                for offset in 1..=SIDEWALK_WIDTH {
+                                    editor.set_block(
+                                        STONE_BRICK_SLAB,
+                                        x + block_range + offset,
+                                        ground.level(XZPoint::new(x, z)) + 1,
+                                        z,
+                                        Some(&[BLACK_CONCRETE]),
+                                        None,
+                                    );
+                                }
+                            }
+                        }
+
                         // Draw the road surface for the entire width
                         for dx in -block_range..=block_range {
                             for dz in -block_range..=block_range {
