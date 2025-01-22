@@ -169,8 +169,7 @@ pub fn generate_buildings(
             building_height = ((2.0 * scale_factor) as i32).max(3);
         } else if building_type == "shed" {
             building_height = ((2.0 * scale_factor) as i32).max(3);
-
-            if element.tags.contains_key("bicycle_parking") {
+            if element.tags.contains_key("bicycle_parking") && element.tags.get("covered") == Some(&"yes".to_string()) {
                 let ground_block: Block = OAK_PLANKS;
                 let roof_block: Block = STONE_BLOCK_SLAB;
 
