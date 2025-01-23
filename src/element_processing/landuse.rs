@@ -7,6 +7,7 @@ use crate::ground::Ground;
 use crate::osm_parser::ProcessedWay;
 use crate::world_editor::WorldEditor;
 use rand::Rng;
+use rand::prelude::SliceRandom;
 
 pub fn generate_landuse(
     editor: &mut WorldEditor,
@@ -164,13 +165,33 @@ pub fn generate_landuse(
             "forest" => {
                 if !editor.check_for_block(x, ground_level, z, None, Some(&[WATER])) {
                     let random_choice: i32 = rng.gen_range(0..21);
+                    // Decide what kind of trees to generate based on leaf_type
+                    let mut trees_ok_to_generate: Vec<u8> = vec![];
+                    if let Some(leaf_type) = element.tags.get("leaf_type") {
+                        match leaf_type.as_str() {
+                            "broadleaved" => {
+                                trees_ok_to_generate.push(1);
+                                trees_ok_to_generate.push(3);
+                            }
+                            "needleleaved" => trees_ok_to_generate.push(2),
+                            _ => {
+                                trees_ok_to_generate.push(1);
+                                trees_ok_to_generate.push(2);
+                                trees_ok_to_generate.push(3);
+                            }
+                        }
+                    } else {
+                        trees_ok_to_generate.push(1);
+                        trees_ok_to_generate.push(2);
+                        trees_ok_to_generate.push(3);
+                    }   
                     if random_choice == 20 {
                         create_tree(
                             editor,
                             x,
                             ground_level + 1,
                             z,
-                            rng.gen_range(1..=3),
+                            *trees_ok_to_generate.choose(&mut rng).unwrap(),
                             args.winter,
                         );
                     } else if random_choice == 2 {
