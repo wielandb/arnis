@@ -6,8 +6,8 @@ use crate::floodfill::flood_fill_area;
 use crate::ground::Ground;
 use crate::osm_parser::ProcessedWay;
 use crate::world_editor::WorldEditor;
-use rand::Rng;
 use rand::prelude::SliceRandom;
+use rand::Rng;
 
 pub fn generate_landuse(
     editor: &mut WorldEditor,
@@ -184,7 +184,7 @@ pub fn generate_landuse(
                         trees_ok_to_generate.push(1);
                         trees_ok_to_generate.push(2);
                         trees_ok_to_generate.push(3);
-                    }   
+                    }
                     if random_choice == 20 {
                         create_tree(
                             editor,
