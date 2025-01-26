@@ -26,5 +26,18 @@ pub fn generate_doors(editor: &mut WorldEditor, element: &ProcessedNode, ground:
         editor.set_block(GRAY_CONCRETE, x, ground_level, z, None, None);
         editor.set_block(DARK_OAK_DOOR_LOWER, x, ground_level + 1, z, None, None);
         editor.set_block(DARK_OAK_DOOR_UPPER, x, ground_level + 2, z, None, None);
+        editor.spawn_entity("pig", 100, 64, 100);
+        editor.spawn_entity("creeper", 105, 64, 95);
+        editor.spawn_entity("armor_stand", 100, 64, 102);   
+        editor.spawn_entity("minecraft:pig", 100, 64, 100);
+        editor.spawn_entity("minecraft:creeper", 105, 64, 95);
+        editor.spawn_entity("minecraft:armor_stand", 100, 64, 102);
+
+        editor.spawn_entity("pig", x, ground_level + 2, z);
+        editor.spawn_entity("creeper", x, ground_level + 2, z);
+        editor.spawn_entity("armor_stand", x, ground_level + 2, z);   
+        editor.spawn_entity("minecraft:pig", x, ground_level + 2, z);
+        editor.spawn_entity("minecraft:creeper", x, ground_level + 2, z);
+        editor.spawn_entity("minecraft:armor_stand", x, ground_level + 2, z);
     }
 }
