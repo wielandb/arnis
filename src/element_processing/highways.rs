@@ -241,19 +241,20 @@ fn generate_highways_internal(
                 block_range = ((block_range as f64) * scale_factor).floor() as i32;
             }
 
-            let parsed_width_meters = element
-                .tags()
-                .get("width")
-                .and_then(|value| {
-                    if value
-                        .chars()
-                        .all(|c: char| c.is_ascii_digit() || c == '.')
-                    {
-                        value.parse::<f64>().ok()
+            let parse_numeric_width = |value: Option<&String>| -> Option<f64> {
+                value.and_then(|v| {
+                    if v.chars().all(|c: char| c.is_ascii_digit() || c == '.') {
+                        v.parse::<f64>().ok()
                     } else {
                         None
                     }
-                });
+                })
+            };
+
+            let parsed_width_meters = element
+                .tags()
+                .get("width")
+                .and_then(|value| parse_numeric_width(Some(value)));
             let lane_count = element
                 .tags()
                 .get("lanes")
@@ -315,6 +316,59 @@ fn generate_highways_internal(
                     _ => {}
                 }
             }
+
+            let mut sidewalk_left = false;
+            let mut sidewalk_right = false;
+            if let Some(sidewalk) = element.tags().get("sidewalk") {
+                match sidewalk.as_str() {
+                    "both" | "yes" => {
+                        sidewalk_left = true;
+                        sidewalk_right = true;
+                    }
+                    "left" => sidewalk_left = true,
+                    "right" => sidewalk_right = true,
+                    _ => {}
+                }
+            }
+            if matches!(
+                element.tags().get("sidewalk:left"),
+                Some(v) if v == "yes"
+            ) || matches!(
+                element.tags().get("sidewalk:both"),
+                Some(v) if v == "yes"
+            ) {
+                sidewalk_left = true;
+            }
+            if matches!(
+                element.tags().get("sidewalk:right"),
+                Some(v) if v == "yes"
+            ) || matches!(
+                element.tags().get("sidewalk:both"),
+                Some(v) if v == "yes"
+            ) {
+                sidewalk_right = true;
+            }
+
+            let sidewalk_both_width_m =
+                parse_numeric_width(element.tags().get("sidewalk:both:width"));
+            let sidewalk_left_width_m = parse_numeric_width(element.tags().get("sidewalk:left:width"))
+                .or(sidewalk_both_width_m);
+            let sidewalk_right_width_m =
+                parse_numeric_width(element.tags().get("sidewalk:right:width"))
+                    .or(sidewalk_both_width_m);
+
+            let default_sidewalk_range = if scale_factor < 1.0 {
+                ((1.0f64 * scale_factor).floor() as i32).max(0)
+            } else {
+                1
+            };
+            let default_sidewalk_width_blocks = (default_sidewalk_range * 2 + 1).max(1);
+            let sidewalk_left_width_blocks = sidewalk_left_width_m
+                .map(|w| width_blocks_from_meters(w, scale_factor))
+                .unwrap_or(default_sidewalk_width_blocks);
+            let sidewalk_right_width_blocks = sidewalk_right_width_m
+                .map(|w| width_blocks_from_meters(w, scale_factor))
+                .unwrap_or(default_sidewalk_width_blocks);
 
             // Calculate elevation based on layer
             const LAYER_HEIGHT_STEP: i32 = 6; // Each layer is 6 blocks higher/lower
@@ -379,7 +433,7 @@ fn generate_highways_internal(
                     let dash_length: i32 = (5.0 * scale_factor).ceil() as i32;
                     let gap_length: i32 = (5.0 * scale_factor).ceil() as i32;
 
-                    for (point_index, (x, _, z)) in bresenham_points.iter().enumerate() {
+                    for (point_index, &(x, _, z)) in bresenham_points.iter().enumerate() {
                         // Calculate Y elevation for this point based on slopes and layer
                         let current_y = calculate_point_elevation(
                             segment_index,
@@ -482,6 +536,27 @@ fn generate_highways_internal(
                             }
                         }
 
+                        if sidewalk_left || sidewalk_right {
+                            add_sidewalks(
+                                editor,
+                                x1,
+                                z1,
+                                x2,
+                                z2,
+                                x,
+                                z,
+                                current_y,
+                                x_range_neg,
+                                x_range_pos,
+                                z_range_neg,
+                                z_range_pos,
+                                sidewalk_left,
+                                sidewalk_right,
+                                sidewalk_left_width_blocks,
+                                sidewalk_right_width_blocks,
+                            );
+                        }
+
                         // Add light gray concrete outline for multi-lane roads
                         if add_outline {
                             if (x2 - x1).abs() >= (z2 - z1).abs() {
@@ -538,8 +613,8 @@ fn generate_highways_internal(
                         // Add a dashed white line in the middle for larger roads
                         if add_stripe {
                             if stripe_length < dash_length {
-                                let stripe_x: i32 = *x;
-                                let stripe_z: i32 = *z;
+                                let stripe_x: i32 = x;
+                                let stripe_z: i32 = z;
                                 editor.set_block(
                                     WHITE_CONCRETE,
                                     stripe_x,
@@ -691,6 +766,89 @@ fn calculate_segment_ranges(
             (right_side_range, left_side_range)
         };
         (x_neg, x_pos, base_range, base_range)
+    }
+}
+
+fn width_blocks_from_meters(width_meters: f64, scale_factor: f64) -> i32 {
+    ((width_meters * scale_factor).ceil() as i32).max(1)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn add_sidewalks(
+    editor: &mut WorldEditor,
+    x1: i32,
+    z1: i32,
+    x2: i32,
+    z2: i32,
+    point_x: i32,
+    point_z: i32,
+    y: i32,
+    x_range_neg: i32,
+    x_range_pos: i32,
+    z_range_neg: i32,
+    z_range_pos: i32,
+    sidewalk_left: bool,
+    sidewalk_right: bool,
+    sidewalk_left_width: i32,
+    sidewalk_right_width: i32,
+) {
+    let block_type = GRAY_CONCRETE;
+    if (x2 - x1).abs() >= (z2 - z1).abs() {
+        let (left_range, right_range, left_sign, right_sign) = if x2 - x1 >= 0 {
+            (z_range_pos, z_range_neg, 1, -1)
+        } else {
+            (z_range_neg, z_range_pos, -1, 1)
+        };
+
+        if sidewalk_left {
+            let start = left_range + 1;
+            let end = left_range + sidewalk_left_width;
+            for offset in start..=end {
+                let set_z = point_z + offset * left_sign;
+                for dx in -x_range_neg..=x_range_pos {
+                    editor.set_block(block_type, point_x + dx, y, set_z, None, None);
+                }
+            }
+        }
+
+        if sidewalk_right {
+            let start = right_range + 1;
+            let end = right_range + sidewalk_right_width;
+            for offset in start..=end {
+                let set_z = point_z + offset * right_sign;
+                for dx in -x_range_neg..=x_range_pos {
+                    editor.set_block(block_type, point_x + dx, y, set_z, None, None);
+                }
+            }
+        }
+    } else {
+        let (left_range, right_range, left_sign, right_sign) = if z2 - z1 >= 0 {
+            (x_range_neg, x_range_pos, -1, 1)
+        } else {
+            (x_range_pos, x_range_neg, 1, -1)
+        };
+
+        if sidewalk_left {
+            let start = left_range + 1;
+            let end = left_range + sidewalk_left_width;
+            for offset in start..=end {
+                let set_x = point_x + offset * left_sign;
+                for dz in -z_range_neg..=z_range_pos {
+                    editor.set_block(block_type, set_x, y, point_z + dz, None, None);
+                }
+            }
+        }
+
+        if sidewalk_right {
+            let start = right_range + 1;
+            let end = right_range + sidewalk_right_width;
+            for offset in start..=end {
+                let set_x = point_x + offset * right_sign;
+                for dz in -z_range_neg..=z_range_pos {
+                    editor.set_block(block_type, set_x, y, point_z + dz, None, None);
+                }
+            }
+        }
     }
 }
 
