@@ -241,6 +241,81 @@ fn generate_highways_internal(
                 block_range = ((block_range as f64) * scale_factor).floor() as i32;
             }
 
+            let parsed_width_meters = element
+                .tags()
+                .get("width")
+                .and_then(|value| {
+                    if value
+                        .chars()
+                        .all(|c: char| c.is_ascii_digit() || c == '.')
+                    {
+                        value.parse::<f64>().ok()
+                    } else {
+                        None
+                    }
+                });
+            let lane_count = element
+                .tags()
+                .get("lanes")
+                .and_then(|lanes: &String| lanes.parse::<f64>().ok());
+
+            let parking_left = parsed_width_meters.is_none()
+                && (matches!(
+                    element.tags().get("parking:left"),
+                    Some(v) if v == "lane"
+                ) || matches!(
+                    element.tags().get("parking:both"),
+                    Some(v) if v == "lane"
+                ));
+            let parking_right = parsed_width_meters.is_none()
+                && (matches!(
+                    element.tags().get("parking:right"),
+                    Some(v) if v == "lane"
+                ) || matches!(
+                    element.tags().get("parking:both"),
+                    Some(v) if v == "lane"
+                ));
+
+            let parking_extra_left_m = if parking_left { 1.5 } else { 0.0 };
+            let parking_extra_right_m = if parking_right { 1.5 } else { 0.0 };
+
+            let base_width_m = if let Some(width) = parsed_width_meters {
+                width
+            } else if let Some(lanes) = lane_count {
+                lanes * 3.0
+            } else {
+                (block_range as f64 * 2.0 + 1.0) / args.scale
+            };
+            let base_half_width_m = base_width_m / 2.0;
+
+            let left_half_width_m = base_half_width_m + parking_extra_left_m;
+            let right_half_width_m = base_half_width_m + parking_extra_right_m;
+
+            let derived_range =
+                ((base_half_width_m * args.scale).floor() as i32).max(0);
+            let left_side_range =
+                ((left_half_width_m * args.scale).floor() as i32).max(0);
+            let right_side_range =
+                ((right_half_width_m * args.scale).floor() as i32).max(0);
+
+            let override_width = parsed_width_meters.is_some() || lane_count.is_some() || parking_left || parking_right;
+            if override_width {
+                block_range = derived_range;
+            }
+
+            block_range = block_range
+                .max(left_side_range)
+                .max(right_side_range)
+                .max(derived_range);
+
+            if let Some(lane_markings) = element.tags().get("lane_markings") {
+                match lane_markings.as_str() {
+                    "yes" => add_stripe = true,
+                    "no" => add_stripe = false,
+                    _ => {}
+                }
+            }
+
             // Calculate elevation based on layer
             const LAYER_HEIGHT_STEP: i32 = 6; // Each layer is 6 blocks higher/lower
             let base_elevation = layer_value * LAYER_HEIGHT_STEP;
@@ -285,6 +360,17 @@ fn generate_highways_internal(
                     let bresenham_points: Vec<(i32, i32, i32)> =
                         bresenham_line(x1, 0, z1, x2, 0, z2);
 
+                    let (x_range_neg, x_range_pos, z_range_neg, z_range_pos) =
+                        calculate_segment_ranges(
+                            x1,
+                            z1,
+                            x2,
+                            z2,
+                            block_range,
+                            left_side_range,
+                            right_side_range,
+                        );
+
                     // Calculate elevation for this segment
                     let segment_length = bresenham_points.len();
 
@@ -307,10 +393,10 @@ fn generate_highways_internal(
                         );
 
                         // Draw the road surface for the entire width
-                        for dx in -block_range..=block_range {
-                            for dz in -block_range..=block_range {
-                                let set_x: i32 = x + dx;
-                                let set_z: i32 = z + dz;
+                        for dx_offset in -x_range_neg..=x_range_pos {
+                            for dz_offset in -z_range_neg..=z_range_pos {
+                                let set_x: i32 = x + dx_offset;
+                                let set_z: i32 = z + dz_offset;
 
                                 // Zebra crossing logic
                                 if highway_type == "footway"
@@ -388,8 +474,8 @@ fn generate_highways_internal(
                                         set_x,
                                         current_y,
                                         set_z,
-                                        dx,
-                                        dz,
+                                        dx_offset,
+                                        dz_offset,
                                         block_range,
                                     );
                                 }
@@ -398,31 +484,54 @@ fn generate_highways_internal(
 
                         // Add light gray concrete outline for multi-lane roads
                         if add_outline {
-                            // Left outline
-                            for dz in -block_range..=block_range {
-                                let outline_x = x - block_range - 1;
-                                let outline_z = z + dz;
-                                editor.set_block(
-                                    LIGHT_GRAY_CONCRETE,
-                                    outline_x,
-                                    current_y,
-                                    outline_z,
-                                    None,
-                                    None,
-                                );
-                            }
-                            // Right outline
-                            for dz in -block_range..=block_range {
-                                let outline_x = x + block_range + 1;
-                                let outline_z = z + dz;
-                                editor.set_block(
-                                    LIGHT_GRAY_CONCRETE,
-                                    outline_x,
-                                    current_y,
-                                    outline_z,
-                                    None,
-                                    None,
-                                );
+                            if (x2 - x1).abs() >= (z2 - z1).abs() {
+                                // Dominant direction along X, outline along Z edges
+                                let outline_z_neg = z - z_range_neg - 1;
+                                let outline_z_pos = z + z_range_pos + 1;
+
+                                for dx_outline in -x_range_neg..=x_range_pos {
+                                    let outline_x = x + dx_outline;
+                                    editor.set_block(
+                                        LIGHT_GRAY_CONCRETE,
+                                        outline_x,
+                                        current_y,
+                                        outline_z_neg,
+                                        None,
+                                        None,
+                                    );
+                                    editor.set_block(
+                                        LIGHT_GRAY_CONCRETE,
+                                        outline_x,
+                                        current_y,
+                                        outline_z_pos,
+                                        None,
+                                        None,
+                                    );
+                                }
+                            } else {
+                                // Dominant direction along Z, outline along X edges
+                                let outline_x_neg = x - x_range_neg - 1;
+                                let outline_x_pos = x + x_range_pos + 1;
+
+                                for dz_outline in -z_range_neg..=z_range_pos {
+                                    let outline_z = z + dz_outline;
+                                    editor.set_block(
+                                        LIGHT_GRAY_CONCRETE,
+                                        outline_x_neg,
+                                        current_y,
+                                        outline_z,
+                                        None,
+                                        None,
+                                    );
+                                    editor.set_block(
+                                        LIGHT_GRAY_CONCRETE,
+                                        outline_x_pos,
+                                        current_y,
+                                        outline_z,
+                                        None,
+                                        None,
+                                    );
+                                }
                             }
                         }
 
@@ -554,6 +663,35 @@ fn calculate_point_elevation(
 
     // Middle section at full elevation
     base_elevation
+}
+
+/// Calculate how many blocks to extend to each side for a segment, respecting asymmetrical widths
+fn calculate_segment_ranges(
+    x1: i32,
+    z1: i32,
+    x2: i32,
+    z2: i32,
+    base_range: i32,
+    left_side_range: i32,
+    right_side_range: i32,
+) -> (i32, i32, i32, i32) {
+    if (x2 - x1).abs() >= (z2 - z1).abs() {
+        // Dominant axis is X, so left/right expand along Z
+        let (z_neg, z_pos) = if x2 - x1 >= 0 {
+            (right_side_range, left_side_range)
+        } else {
+            (left_side_range, right_side_range)
+        };
+        (base_range, base_range, z_neg, z_pos)
+    } else {
+        // Dominant axis is Z, so left/right expand along X
+        let (x_neg, x_pos) = if z2 - z1 >= 0 {
+            (left_side_range, right_side_range)
+        } else {
+            (right_side_range, left_side_range)
+        };
+        (x_neg, x_pos, base_range, base_range)
+    }
 }
 
 /// Add support pillars for elevated highways
