@@ -6,6 +6,7 @@ use crate::floodfill::flood_fill_area;
 use crate::osm_parser::{ProcessedElement, ProcessedWay};
 use crate::world_editor::WorldEditor;
 use std::collections::HashMap;
+use rand::Rng;
 
 /// Type alias for highway connectivity map
 pub type HighwayConnectivityMap = HashMap<(i32, i32), Vec<i32>>;
@@ -73,11 +74,7 @@ fn generate_highways_internal(
             if let ProcessedElement::Node(first_node) = element {
                 let x: i32 = first_node.x;
                 let z: i32 = first_node.z;
-                editor.set_block(COBBLESTONE_WALL, x, 1, z, None, None);
-                for dy in 2..=4 {
-                    editor.set_block(OAK_FENCE, x, dy, z, None, None);
-                }
-                editor.set_block(GLOWSTONE, x, 5, z, None, None);
+                place_street_lamp(editor, x, 1, z);
             }
         } else if highway_type == "crossing" {
             // Handle traffic signals for crossings
@@ -369,6 +366,15 @@ fn generate_highways_internal(
             let sidewalk_right_width_blocks = sidewalk_right_width_m
                 .map(|w| width_blocks_from_meters(w, scale_factor))
                 .unwrap_or(default_sidewalk_width_blocks);
+            let has_lighting = matches!(element.tags().get("lit"), Some(v) if v == "yes");
+            let (lamp_left, lamp_right) = if has_lighting {
+                determine_lamp_sides(element.tags(), highway_type.as_str())
+            } else {
+                (false, false)
+            };
+            let lamp_spacing_blocks: usize =
+                ((16.0 * scale_factor).ceil() as usize).max(8);
+            let mut lamp_step_counter: usize = 0;
 
             // Calculate elevation based on layer
             const LAYER_HEIGHT_STEP: i32 = 6; // Each layer is 6 blocks higher/lower
@@ -432,6 +438,21 @@ fn generate_highways_internal(
                     let mut stripe_length: i32 = 0;
                     let dash_length: i32 = (5.0 * scale_factor).ceil() as i32;
                     let gap_length: i32 = (5.0 * scale_factor).ceil() as i32;
+                    let side_offsets = calculate_side_offsets(
+                        x1,
+                        z1,
+                        x2,
+                        z2,
+                        x_range_neg,
+                        x_range_pos,
+                        z_range_neg,
+                        z_range_pos,
+                        sidewalk_left,
+                        sidewalk_right,
+                        sidewalk_left_width_blocks,
+                        sidewalk_right_width_blocks,
+                        add_outline,
+                    );
 
                     for (point_index, &(x, _, z)) in bresenham_points.iter().enumerate() {
                         // Calculate Y elevation for this point based on slopes and layer
@@ -631,6 +652,35 @@ fn generate_highways_internal(
                                 stripe_length = 0;
                             }
                         }
+
+                        if has_lighting {
+                            lamp_step_counter += 1;
+                            if lamp_step_counter >= lamp_spacing_blocks {
+                                if lamp_left {
+                                    let (lamp_x, lamp_z) =
+                                        side_offsets.left_position(x, z);
+                                    place_street_lamp(
+                                        editor,
+                                        lamp_x,
+                                        current_y + 1,
+                                        lamp_z,
+                                    );
+                                }
+
+                                if lamp_right {
+                                    let (lamp_x, lamp_z) =
+                                        side_offsets.right_position(x, z);
+                                    place_street_lamp(
+                                        editor,
+                                        lamp_x,
+                                        current_y + 1,
+                                        lamp_z,
+                                    );
+                                }
+
+                                lamp_step_counter = 0;
+                            }
+                        }
                     }
 
                     segment_index += 1;
@@ -771,6 +821,205 @@ fn calculate_segment_ranges(
 
 fn width_blocks_from_meters(width_meters: f64, scale_factor: f64) -> i32 {
     ((width_meters * scale_factor).ceil() as i32).max(1)
+}
+
+#[derive(Clone, Copy)]
+enum SideAxis {
+    X,
+    Z,
+}
+
+#[derive(Clone, Copy)]
+struct SideOffsets {
+    left_axis: SideAxis,
+    right_axis: SideAxis,
+    left_sign: i32,
+    right_sign: i32,
+    left_offset: i32,
+    right_offset: i32,
+}
+
+impl SideOffsets {
+    fn left_position(&self, x: i32, z: i32) -> (i32, i32) {
+        match self.left_axis {
+            SideAxis::X => (x + self.left_sign * self.left_offset, z),
+            SideAxis::Z => (x, z + self.left_sign * self.left_offset),
+        }
+    }
+
+    fn right_position(&self, x: i32, z: i32) -> (i32, i32) {
+        match self.right_axis {
+            SideAxis::X => (x + self.right_sign * self.right_offset, z),
+            SideAxis::Z => (x, z + self.right_sign * self.right_offset),
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn calculate_side_offsets(
+    x1: i32,
+    z1: i32,
+    x2: i32,
+    z2: i32,
+    x_range_neg: i32,
+    x_range_pos: i32,
+    z_range_neg: i32,
+    z_range_pos: i32,
+    sidewalk_left: bool,
+    sidewalk_right: bool,
+    sidewalk_left_width: i32,
+    sidewalk_right_width: i32,
+    add_outline: bool,
+) -> SideOffsets {
+    let margin = 1 + i32::from(add_outline);
+
+    if (x2 - x1).abs() >= (z2 - z1).abs() {
+        // Left/right expand along Z
+        let (left_range, right_range, left_sign, right_sign) = if x2 - x1 >= 0 {
+            (z_range_pos, z_range_neg, 1, -1)
+        } else {
+            (z_range_neg, z_range_pos, -1, 1)
+        };
+
+        let left_offset = (left_range
+            + margin
+            + if sidewalk_left {
+                sidewalk_left_width
+            } else {
+                0
+            })
+            .max(1);
+        let right_offset = (right_range
+            + margin
+            + if sidewalk_right {
+                sidewalk_right_width
+            } else {
+                0
+            })
+            .max(1);
+
+        SideOffsets {
+            left_axis: SideAxis::Z,
+            right_axis: SideAxis::Z,
+            left_sign,
+            right_sign,
+            left_offset,
+            right_offset,
+        }
+    } else {
+        // Left/right expand along X
+        let (left_range, right_range, left_sign, right_sign) = if z2 - z1 >= 0 {
+            (x_range_neg, x_range_pos, -1, 1)
+        } else {
+            (x_range_pos, x_range_neg, 1, -1)
+        };
+
+        let left_offset = (left_range
+            + margin
+            + if sidewalk_left {
+                sidewalk_left_width
+            } else {
+                0
+            })
+            .max(1);
+        let right_offset = (right_range
+            + margin
+            + if sidewalk_right {
+                sidewalk_right_width
+            } else {
+                0
+            })
+            .max(1);
+
+        SideOffsets {
+            left_axis: SideAxis::X,
+            right_axis: SideAxis::X,
+            left_sign,
+            right_sign,
+            left_offset,
+            right_offset,
+        }
+    }
+}
+
+fn determine_lamp_sides(
+    tags: &HashMap<String, String>,
+    highway_type: &str,
+) -> (bool, bool) {
+    if let Some(side_value) = tags.get("lit:side") {
+        match side_value.as_str() {
+            "left" => return (true, false),
+            "right" => return (false, true),
+            "both" => return (true, true),
+            _ => {}
+        }
+    }
+
+    let large_road = matches!(
+        highway_type,
+        "primary"
+            | "secondary"
+            | "tertiary"
+            | "trunk"
+            | "motorway"
+            | "primary_link"
+            | "secondary_link"
+            | "tertiary_link"
+    );
+
+    if large_road {
+        return (true, true);
+    }
+
+    let mut rng = rand::thread_rng();
+    if rng.gen_bool(0.5) {
+        (true, false)
+    } else {
+        (false, true)
+    }
+}
+
+fn place_street_lamp(editor: &mut WorldEditor, x: i32, base_y: i32, z: i32) {
+    let absolute_base_y = editor.get_absolute_y(x, base_y, z);
+    if has_nearby_lamp(editor, absolute_base_y, x, z, 10) {
+        return;
+    }
+
+    editor.set_block(COBBLESTONE_WALL, x, base_y, z, None, None);
+    for dy in 1..=3 {
+        editor.set_block(OAK_FENCE, x, base_y + dy, z, None, None);
+    }
+    editor.set_block(GLOWSTONE, x, base_y + 4, z, None, None);
+}
+
+fn has_nearby_lamp(
+    editor: &WorldEditor,
+    absolute_base_y: i32,
+    x: i32,
+    z: i32,
+    radius: i32,
+) -> bool {
+    let radius_sq = radius * radius;
+
+    for dx in -radius..=radius {
+        for dz in -radius..=radius {
+            if dx * dx + dz * dz > radius_sq {
+                continue;
+            }
+
+            if editor.check_for_block_absolute(
+                x + dx,
+                absolute_base_y,
+                z + dz,
+                Some(&[COBBLESTONE_WALL]),
+                None,
+            ) {
+                return true;
+            }
+        }
+    }
+
+    false
 }
 
 #[allow(clippy::too_many_arguments)]
