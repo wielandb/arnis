@@ -494,6 +494,32 @@ impl<'a> WorldEditor<'a> {
         self.world.get_block(x, absolute_y, z).is_some()
     }
 
+    /// Replaces all structure void blocks with air blocks.
+    ///
+    /// This is called after block generation is complete to clean up any
+    /// structure void blocks that were used as placeholders during generation.
+    pub fn replace_structure_void_with_air(&mut self) {
+        use colored::Colorize;
+        
+        println!("{} Replacing structure void with air...", "[6.5/7]".bold());
+        
+        // Iterate through all regions
+        for (_region_coords, region) in self.world.regions.iter_mut() {
+            // Iterate through all chunks in the region
+            for (_chunk_coords, chunk) in region.chunks.iter_mut() {
+                // Iterate through all sections in the chunk
+                for (_section_y, section) in chunk.sections.iter_mut() {
+                    // Iterate through all blocks in the section
+                    for i in 0..4096 {
+                        if section.blocks[i] == STRUCTURE_VOID {
+                            section.blocks[i] = AIR;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// Saves all changes made to the world by writing to the appropriate format.
     pub fn save(&mut self) {
         println!(

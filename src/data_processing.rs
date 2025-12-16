@@ -272,6 +272,9 @@ pub fn generate_world_with_options(
     ground_pb.inc(block_counter % batch_size);
     ground_pb.finish();
 
+    // Replace all structure void blocks with air
+    editor.replace_structure_void_with_air();
+
     // Save world
     editor.save();
 
