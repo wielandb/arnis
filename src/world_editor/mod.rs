@@ -168,6 +168,11 @@ impl<'a> WorldEditor<'a> {
         self.world.get_block(x, absolute_y, z).is_some()
     }
 
+    #[inline(always)]
+    fn is_protected_block(block: Block) -> bool {
+        block == STRUCTURE_VOID || block == COBBLED_DEEPSLATE
+    }
+
     /// Sets a sign at the given coordinates
     #[allow(clippy::too_many_arguments, dead_code)]
     pub fn set_sign(
@@ -251,8 +256,9 @@ impl<'a> WorldEditor<'a> {
         let absolute_y = self.get_absolute_y(x, y, z);
 
         let should_insert = if let Some(existing_block) = self.world.get_block(x, absolute_y, z) {
-            // Check against whitelist and blacklist
-            if let Some(whitelist) = override_whitelist {
+            if Self::is_protected_block(existing_block) {
+                false
+            } else if let Some(whitelist) = override_whitelist {
                 whitelist
                     .iter()
                     .any(|whitelisted_block: &Block| whitelisted_block.id() == existing_block.id())
@@ -289,8 +295,9 @@ impl<'a> WorldEditor<'a> {
         }
 
         let should_insert = if let Some(existing_block) = self.world.get_block(x, absolute_y, z) {
-            // Check against whitelist and blacklist
-            if let Some(whitelist) = override_whitelist {
+            if Self::is_protected_block(existing_block) {
+                false
+            } else if let Some(whitelist) = override_whitelist {
                 whitelist
                     .iter()
                     .any(|whitelisted_block: &Block| whitelisted_block.id() == existing_block.id())
@@ -327,8 +334,9 @@ impl<'a> WorldEditor<'a> {
         }
 
         let should_insert = if let Some(existing_block) = self.world.get_block(x, absolute_y, z) {
-            // Check against whitelist and blacklist
-            if let Some(whitelist) = override_whitelist {
+            if Self::is_protected_block(existing_block) {
+                false
+            } else if let Some(whitelist) = override_whitelist {
                 whitelist
                     .iter()
                     .any(|whitelisted_block: &Block| whitelisted_block.id() == existing_block.id())

@@ -5,8 +5,8 @@ use crate::coordinate_system::cartesian::XZPoint;
 use crate::floodfill::flood_fill_area;
 use crate::osm_parser::{ProcessedElement, ProcessedWay};
 use crate::world_editor::WorldEditor;
-use std::collections::HashMap;
 use rand::Rng;
+use std::collections::HashMap;
 
 /// Type alias for highway connectivity map
 pub type HighwayConnectivityMap = HashMap<(i32, i32), Vec<i32>>;
@@ -154,6 +154,14 @@ fn generate_highways_internal(
             let mut add_outline = false;
             let scale_factor = args.scale;
 
+            let building_passage_radius_m = element.tags().get("tunnel").and_then(|tunnel| {
+                if tunnel == "building_passage" {
+                    Some(determine_building_passage_radius(element.tags()))
+                } else {
+                    None
+                }
+            });
+
             // Parse the layer value for elevation calculation
             let layer_value = element
                 .tags()
@@ -289,14 +297,14 @@ fn generate_highways_internal(
             let left_half_width_m = base_half_width_m + parking_extra_left_m;
             let right_half_width_m = base_half_width_m + parking_extra_right_m;
 
-            let derived_range =
-                ((base_half_width_m * args.scale).floor() as i32).max(0);
-            let left_side_range =
-                ((left_half_width_m * args.scale).floor() as i32).max(0);
-            let right_side_range =
-                ((right_half_width_m * args.scale).floor() as i32).max(0);
+            let derived_range = ((base_half_width_m * args.scale).floor() as i32).max(0);
+            let left_side_range = ((left_half_width_m * args.scale).floor() as i32).max(0);
+            let right_side_range = ((right_half_width_m * args.scale).floor() as i32).max(0);
 
-            let override_width = parsed_width_meters.is_some() || lane_count.is_some() || parking_left || parking_right;
+            let override_width = parsed_width_meters.is_some()
+                || lane_count.is_some()
+                || parking_left
+                || parking_right;
             if override_width {
                 block_range = derived_range;
             }
@@ -348,8 +356,9 @@ fn generate_highways_internal(
 
             let sidewalk_both_width_m =
                 parse_numeric_width(element.tags().get("sidewalk:both:width"));
-            let sidewalk_left_width_m = parse_numeric_width(element.tags().get("sidewalk:left:width"))
-                .or(sidewalk_both_width_m);
+            let sidewalk_left_width_m =
+                parse_numeric_width(element.tags().get("sidewalk:left:width"))
+                    .or(sidewalk_both_width_m);
             let sidewalk_right_width_m =
                 parse_numeric_width(element.tags().get("sidewalk:right:width"))
                     .or(sidewalk_both_width_m);
@@ -372,8 +381,7 @@ fn generate_highways_internal(
             } else {
                 (false, false)
             };
-            let lamp_spacing_blocks: usize =
-                ((16.0 * scale_factor).ceil() as usize).max(8);
+            let lamp_spacing_blocks: usize = ((16.0 * scale_factor).ceil() as usize).max(8);
             let mut lamp_step_counter: usize = 0;
 
             // Calculate elevation based on layer
@@ -415,6 +423,9 @@ fn generate_highways_internal(
                     let (x1, z1) = prev;
                     let x2: i32 = node.x;
                     let z2: i32 = node.z;
+
+                    let segment_dx = x2 - x1;
+                    let segment_dz = z2 - z1;
 
                     // Generate the line of coordinates between the two nodes
                     let bresenham_points: Vec<(i32, i32, i32)> =
@@ -632,6 +643,13 @@ fn generate_highways_internal(
                         }
 
                         // Add a dashed white line in the middle for larger roads
+                        if let Some(radius_m) = building_passage_radius_m {
+                            generate_building_passage_tunnel_at_point(
+                                editor, x, z, current_y, segment_dx, segment_dz, radius_m,
+                                args.scale,
+                            );
+                        }
+
                         if add_stripe {
                             if stripe_length < dash_length {
                                 let stripe_x: i32 = x;
@@ -657,25 +675,13 @@ fn generate_highways_internal(
                             lamp_step_counter += 1;
                             if lamp_step_counter >= lamp_spacing_blocks {
                                 if lamp_left {
-                                    let (lamp_x, lamp_z) =
-                                        side_offsets.left_position(x, z);
-                                    place_street_lamp(
-                                        editor,
-                                        lamp_x,
-                                        current_y + 1,
-                                        lamp_z,
-                                    );
+                                    let (lamp_x, lamp_z) = side_offsets.left_position(x, z);
+                                    place_street_lamp(editor, lamp_x, current_y + 1, lamp_z);
                                 }
 
                                 if lamp_right {
-                                    let (lamp_x, lamp_z) =
-                                        side_offsets.right_position(x, z);
-                                    place_street_lamp(
-                                        editor,
-                                        lamp_x,
-                                        current_y + 1,
-                                        lamp_z,
-                                    );
+                                    let (lamp_x, lamp_z) = side_offsets.right_position(x, z);
+                                    place_street_lamp(editor, lamp_x, current_y + 1, lamp_z);
                                 }
 
                                 lamp_step_counter = 0;
@@ -819,6 +825,125 @@ fn calculate_segment_ranges(
     }
 }
 
+fn determine_building_passage_radius(tags: &HashMap<String, String>) -> f64 {
+    const DEFAULT_RADIUS: f64 = 4.5;
+    parse_building_passage_value(tags.get("maxheight:physical"))
+        .or_else(|| parse_building_passage_value(tags.get("height")))
+        .or_else(|| parse_building_passage_value(tags.get("maxheight")))
+        .unwrap_or(DEFAULT_RADIUS)
+}
+
+fn parse_building_passage_value(value: Option<&String>) -> Option<f64> {
+    value.and_then(|raw| {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+
+        match trimmed.to_lowercase().as_str() {
+            "default" => Some(4.5),
+            "below_default" => Some(2.5),
+            _ => {
+                let cleaned = trimmed
+                    .trim_end_matches(|c: char| c == 'm' || c == 'M')
+                    .trim();
+
+                if cleaned.is_empty() {
+                    return None;
+                }
+
+                if cleaned.chars().all(|c| c.is_ascii_digit() || c == '.') {
+                    cleaned.parse::<f64>().ok()
+                } else {
+                    None
+                }
+            }
+        }
+    })
+}
+
+fn generate_building_passage_tunnel_at_point(
+    editor: &mut WorldEditor,
+    center_x: i32,
+    center_z: i32,
+    base_y: i32,
+    dir_dx: i32,
+    dir_dz: i32,
+    radius_m: f64,
+    scale_factor: f64,
+) {
+    let radius_blocks = (radius_m * scale_factor).max(0.0);
+    if radius_blocks <= 0.0 {
+        return;
+    }
+
+    let radius_sq = radius_blocks * radius_blocks;
+    let max_height_blocks = (radius_blocks.ceil() as i32).max(1);
+
+    let mut dir_unit_x = dir_dx as f64;
+    let mut dir_unit_z = dir_dz as f64;
+    let len = (dir_unit_x * dir_unit_x + dir_unit_z * dir_unit_z).sqrt();
+    if len > 0.0 {
+        dir_unit_x /= len;
+        dir_unit_z /= len;
+    } else {
+        dir_unit_x = 1.0;
+        dir_unit_z = 0.0;
+    }
+
+    let perp_unit_x = -dir_unit_z;
+    let perp_unit_z = dir_unit_x;
+    let max_offset = (radius_blocks.ceil() as i32) + 1;
+
+    for height_offset in 1..=max_height_blocks {
+        let height_center = (height_offset as f64) - 0.5;
+        if height_center > radius_blocks + 0.5 {
+            break;
+        }
+
+        let horizontal_limit_sq = (radius_sq - height_center * height_center).max(0.0);
+        let horizontal_limit = horizontal_limit_sq.sqrt();
+        let y = base_y + height_offset;
+
+        for dx_offset in -max_offset..=max_offset {
+            for dz_offset in -max_offset..=max_offset {
+                let perp_distance =
+                    (dx_offset as f64) * perp_unit_x + (dz_offset as f64) * perp_unit_z;
+                let perp_abs = perp_distance.abs();
+
+                if perp_abs > horizontal_limit + 0.5 {
+                    continue;
+                }
+
+                let parallel_distance =
+                    (dx_offset as f64) * dir_unit_x + (dz_offset as f64) * dir_unit_z;
+                if parallel_distance.abs() > 0.5 {
+                    continue;
+                }
+
+                let distance_to_edge = horizontal_limit - perp_abs;
+                let near_edge = distance_to_edge.abs() <= 0.35;
+                let is_shell = near_edge || (height_center >= radius_blocks - 0.5);
+
+                let target_block = if is_shell {
+                    COBBLED_DEEPSLATE
+                } else {
+                    STRUCTURE_VOID
+                };
+
+                editor.set_block(
+                    target_block,
+                    center_x + dx_offset,
+                    y,
+                    center_z + dz_offset,
+                    None,
+                    Some(&[]),
+                );
+            }
+        }
+    }
+}
+
 fn width_blocks_from_meters(width_meters: f64, scale_factor: f64) -> i32 {
     ((width_meters * scale_factor).ceil() as i32).max(1)
 }
@@ -888,7 +1013,7 @@ fn calculate_side_offsets(
             } else {
                 0
             })
-            .max(1);
+        .max(1);
         let right_offset = (right_range
             + margin
             + if sidewalk_right {
@@ -896,7 +1021,7 @@ fn calculate_side_offsets(
             } else {
                 0
             })
-            .max(1);
+        .max(1);
 
         SideOffsets {
             left_axis: SideAxis::Z,
@@ -921,7 +1046,7 @@ fn calculate_side_offsets(
             } else {
                 0
             })
-            .max(1);
+        .max(1);
         let right_offset = (right_range
             + margin
             + if sidewalk_right {
@@ -929,7 +1054,7 @@ fn calculate_side_offsets(
             } else {
                 0
             })
-            .max(1);
+        .max(1);
 
         SideOffsets {
             left_axis: SideAxis::X,
@@ -942,10 +1067,7 @@ fn calculate_side_offsets(
     }
 }
 
-fn determine_lamp_sides(
-    tags: &HashMap<String, String>,
-    highway_type: &str,
-) -> (bool, bool) {
+fn determine_lamp_sides(tags: &HashMap<String, String>, highway_type: &str) -> (bool, bool) {
     if let Some(side_value) = tags.get("lit:side") {
         match side_value.as_str() {
             "left" => return (true, false),
