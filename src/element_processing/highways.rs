@@ -826,7 +826,7 @@ fn calculate_segment_ranges(
 }
 
 fn determine_building_passage_radius(tags: &HashMap<String, String>) -> f64 {
-    const DEFAULT_RADIUS: f64 = 4.5;
+    const DEFAULT_RADIUS: f64 = 5.0;
     parse_building_passage_value(tags.get("maxheight:physical"))
         .or_else(|| parse_building_passage_value(tags.get("height")))
         .or_else(|| parse_building_passage_value(tags.get("maxheight")))
@@ -841,8 +841,8 @@ fn parse_building_passage_value(value: Option<&String>) -> Option<f64> {
         }
 
         match trimmed.to_lowercase().as_str() {
-            "default" => Some(4.5),
-            "below_default" => Some(2.5),
+            "default" => Some(5.0),
+            "below_default" => Some(3.0),
             _ => {
                 let cleaned = trimmed
                     .trim_end_matches(|c: char| c == 'm' || c == 'M')
@@ -893,11 +893,11 @@ fn generate_building_passage_tunnel_at_point(
 
     let perp_unit_x = -dir_unit_z;
     let perp_unit_z = dir_unit_x;
-    let max_offset = (radius_blocks.ceil() as i32) + 1;
+    let max_offset = (radius_blocks.ceil() as i32) + 2; // Extended to cover 2-block thick shell
 
     for height_offset in 1..=max_height_blocks {
         let height_center = (height_offset as f64) - 0.5;
-        if height_center > radius_blocks + 0.5 {
+        if height_center > radius_blocks + 2.5 {
             break;
         }
 
@@ -911,34 +911,38 @@ fn generate_building_passage_tunnel_at_point(
                     (dx_offset as f64) * perp_unit_x + (dz_offset as f64) * perp_unit_z;
                 let perp_abs = perp_distance.abs();
 
-                if perp_abs > horizontal_limit + 0.5 {
+                // Extended range to include 2-block thick shell on the outside
+                if perp_abs > horizontal_limit + 2.5 {
                     continue;
                 }
 
                 let parallel_distance =
                     (dx_offset as f64) * dir_unit_x + (dz_offset as f64) * dir_unit_z;
-                if parallel_distance.abs() > 0.5 {
-                    continue;
+                
+                // Interior is more than 2 blocks away from the edge and below the top
+                let is_interior = perp_abs < (horizontal_limit - 0.5) && height_center < (radius_blocks - 1.5);
+
+                // For STRUCTURE_VOID interior, extend further in direction
+                if is_interior && parallel_distance.abs() <= horizontal_limit + 1.0 {
+                    editor.set_block(
+                        STRUCTURE_VOID,
+                        center_x + dx_offset,
+                        y,
+                        center_z + dz_offset,
+                        None,
+                        Some(&[]),
+                    );
+                } else if !is_interior && parallel_distance.abs() <= 1.5 {
+                    // COBBLED_DEEPSLATE shell stays in original radius
+                    editor.set_block(
+                        COBBLED_DEEPSLATE,
+                        center_x + dx_offset,
+                        y,
+                        center_z + dz_offset,
+                        None,
+                        Some(&[]),
+                    );
                 }
-
-                let distance_to_edge = horizontal_limit - perp_abs;
-                let near_edge = distance_to_edge.abs() <= 0.35;
-                let is_shell = near_edge || (height_center >= radius_blocks - 0.5);
-
-                let target_block = if is_shell {
-                    COBBLED_DEEPSLATE
-                } else {
-                    STRUCTURE_VOID
-                };
-
-                editor.set_block(
-                    target_block,
-                    center_x + dx_offset,
-                    y,
-                    center_z + dz_offset,
-                    None,
-                    Some(&[]),
-                );
             }
         }
     }

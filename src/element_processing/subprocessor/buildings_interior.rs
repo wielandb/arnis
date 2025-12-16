@@ -259,7 +259,7 @@ pub fn generate_building_interior(
                         floor_y + y_offset + abs_terrain_offset,
                         z,
                         None,
-                        None,
+                        Some(&[COBBLED_DEEPSLATE, STRUCTURE_VOID]),
                     );
 
                     // If this is a wall in layer 1, add to wall positions to extend later
@@ -280,7 +280,7 @@ pub fn generate_building_interior(
                         floor_y + y_offset + abs_terrain_offset + 1,
                         z,
                         None,
-                        None,
+                        Some(&[COBBLED_DEEPSLATE, STRUCTURE_VOID]),
                     );
                 }
             }
@@ -289,14 +289,14 @@ pub fn generate_building_interior(
         // Extend walls all the way to the next floor ceiling or roof
         for (x, z) in &wall_positions {
             for y in (floor_y + y_offset + 2)..=current_floor_ceiling {
-                editor.set_block_absolute(wall_block, *x, y + abs_terrain_offset, *z, None, None);
+                editor.set_block_absolute(wall_block, *x, y + abs_terrain_offset, *z, None, Some(&[COBBLED_DEEPSLATE, STRUCTURE_VOID]));
             }
         }
 
         // Add wall blocks above doors all the way to the ceiling/next floor
         for (x, z) in &door_positions {
             for y in (floor_y + y_offset + 2)..=current_floor_ceiling {
-                editor.set_block_absolute(wall_block, *x, y + abs_terrain_offset, *z, None, None);
+                editor.set_block_absolute(wall_block, *x, y + abs_terrain_offset, *z, None, Some(&[COBBLED_DEEPSLATE, STRUCTURE_VOID]));
             }
         }
     }

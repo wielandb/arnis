@@ -206,14 +206,14 @@ pub fn generate_buildings(
                 let z: i32 = node.z;
 
                 for shelter_y in 1..=multiply_scale(4, scale_factor) {
-                    editor.set_block(OAK_FENCE, x, shelter_y, z, None, None);
+                    editor.set_block(OAK_FENCE, x, shelter_y, z, None, Some(&[COBBLED_DEEPSLATE, STRUCTURE_VOID]));
                 }
-                editor.set_block(roof_block, x, 5, z, None, None);
+                editor.set_block(roof_block, x, 5, z, None, Some(&[COBBLED_DEEPSLATE, STRUCTURE_VOID]));
             }
 
             // Flood fill the roof area
             for (x, z) in roof_area.iter() {
-                editor.set_block(roof_block, *x, 5, *z, None, None);
+                editor.set_block(roof_block, *x, 5, *z, None, Some(&[COBBLED_DEEPSLATE, STRUCTURE_VOID]));
             }
 
             return;
@@ -235,7 +235,7 @@ pub fn generate_buildings(
 
                 // Fill the floor area
                 for (x, z) in floor_area.iter() {
-                    editor.set_block(ground_block, *x, 0, *z, None, None);
+                    editor.set_block(ground_block, *x, 0, *z, None, Some(&[COBBLED_DEEPSLATE, STRUCTURE_VOID]));
                 }
 
                 // Place fences and roof slabs at each corner node directly
@@ -244,14 +244,14 @@ pub fn generate_buildings(
                     let z: i32 = node.z;
 
                     for dy in 1..=4 {
-                        editor.set_block(OAK_FENCE, x, dy, z, None, None);
+                        editor.set_block(OAK_FENCE, x, dy, z, None, Some(&[COBBLED_DEEPSLATE, STRUCTURE_VOID]));
                     }
-                    editor.set_block(roof_block, x, 5, z, None, None);
+                    editor.set_block(roof_block, x, 5, z, None, Some(&[COBBLED_DEEPSLATE, STRUCTURE_VOID]));
                 }
 
                 // Flood fill the roof area
                 for (x, z) in floor_area.iter() {
-                    editor.set_block(roof_block, *x, 5, *z, None, None);
+                    editor.set_block(roof_block, *x, 5, *z, None, Some(&[COBBLED_DEEPSLATE, STRUCTURE_VOID]));
                 }
 
                 return;
@@ -280,16 +280,16 @@ pub fn generate_buildings(
 
                     // Build walls up to the current level
                     for y in (current_level_y + 1)..=(current_level_y + 4) {
-                        editor.set_block(STONE_BRICKS, x, y, z, None, None);
+                        editor.set_block(STONE_BRICKS, x, y, z, None, Some(&[COBBLED_DEEPSLATE, STRUCTURE_VOID]));
                     }
                 }
 
                 // Fill the floor area for each level
                 for (x, z) in floor_area {
                     if level == 0 {
-                        editor.set_block(SMOOTH_STONE, *x, current_level_y, *z, None, None);
+                        editor.set_block(SMOOTH_STONE, *x, current_level_y, *z, None, Some(&[COBBLED_DEEPSLATE, STRUCTURE_VOID]));
                     } else {
-                        editor.set_block(COBBLESTONE, *x, current_level_y, *z, None, None);
+                        editor.set_block(COBBLESTONE, *x, current_level_y, *z, None, Some(&[COBBLED_DEEPSLATE, STRUCTURE_VOID]));
                     }
                 }
             }
@@ -353,13 +353,13 @@ pub fn generate_buildings(
                     let bresenham_points: Vec<(i32, i32, i32)> =
                         bresenham_line(prev.0, roof_height, prev.1, x, roof_height, z);
                     for (bx, _, bz) in bresenham_points {
-                        editor.set_block(STONE_BRICK_SLAB, bx, roof_height, bz, None, None);
+                        editor.set_block(STONE_BRICK_SLAB, bx, roof_height, bz, None, Some(&[COBBLED_DEEPSLATE, STRUCTURE_VOID]));
                         // Set roof block at edge
                     }
                 }
 
                 for y in 1..=(roof_height - 1) {
-                    editor.set_block(COBBLESTONE_WALL, x, y, z, None, None);
+                    editor.set_block(COBBLESTONE_WALL, x, y, z, None, Some(&[COBBLED_DEEPSLATE, STRUCTURE_VOID]));
                 }
 
                 previous_node = Some((x, z));
@@ -370,7 +370,7 @@ pub fn generate_buildings(
 
             // Fill the interior of the roof with STONE_BRICK_SLAB
             for (x, z) in roof_area.iter() {
-                editor.set_block(STONE_BRICK_SLAB, *x, roof_height, *z, None, None);
+                editor.set_block(STONE_BRICK_SLAB, *x, roof_height, *z, None, Some(&[COBBLED_DEEPSLATE, STRUCTURE_VOID]));
                 // Set roof block
             }
 
@@ -904,7 +904,7 @@ fn generate_roof(
                         None,
                     );
                 } else {
-                    editor.set_block_absolute(block, x, y + abs_terrain_offset, z, None, None);
+                    editor.set_block_absolute(block, x, y + abs_terrain_offset, z, None, Some(&[COBBLED_DEEPSLATE, STRUCTURE_VOID]));
                 }
             }
         }
@@ -1473,7 +1473,7 @@ fn generate_roof(
 
                 // Fill from the base to the surface
                 for y in base_height..=surface_height {
-                    editor.set_block_absolute(roof_block, x, y + abs_terrain_offset, z, None, None);
+                    editor.set_block_absolute(roof_block, x, y + abs_terrain_offset, z, None, Some(&[COBBLED_DEEPSLATE, STRUCTURE_VOID]));
                 }
             }
         }
@@ -1548,8 +1548,8 @@ fn generate_bridge(
 
             for (bx, by, bz) in bridge_points {
                 // Place railing blocks
-                editor.set_block(railing_block, bx, by + 1, bz, None, None);
-                editor.set_block(railing_block, bx, by, bz, None, None);
+                editor.set_block(railing_block, bx, by + 1, bz, None, Some(&[COBBLED_DEEPSLATE, STRUCTURE_VOID]));
+                editor.set_block(railing_block, bx, by, bz, None, Some(&[COBBLED_DEEPSLATE, STRUCTURE_VOID]));
             }
         }
 
@@ -1574,6 +1574,6 @@ fn generate_bridge(
 
     // Place floor blocks
     for (x, z) in bridge_area {
-        editor.set_block(floor_block, x, bridge_y_offset, z, None, None);
+        editor.set_block(floor_block, x, bridge_y_offset, z, None, Some(&[COBBLED_DEEPSLATE, STRUCTURE_VOID]));
     }
 }
