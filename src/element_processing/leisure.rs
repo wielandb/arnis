@@ -1,13 +1,19 @@
 use crate::args::Args;
 use crate::block_definitions::*;
 use crate::bresenham::bresenham_line;
+use crate::element_context::ElementContext;
 use crate::element_processing::tree::Tree;
 use crate::floodfill::flood_fill_area;
 use crate::osm_parser::{ProcessedMemberRole, ProcessedRelation, ProcessedWay};
 use crate::world_editor::WorldEditor;
 use rand::Rng;
 
-pub fn generate_leisure(editor: &mut WorldEditor, element: &ProcessedWay, args: &Args) {
+pub fn generate_leisure(
+    editor: &mut WorldEditor,
+    element: &ProcessedWay,
+    args: &Args,
+    _context: &ElementContext,
+) {
     if let Some(leisure_type) = element.tags.get("leisure") {
         let mut previous_node: Option<(i32, i32)> = None;
         let mut corner_addup: (i32, i32, i32) = (0, 0, 0);
@@ -176,12 +182,13 @@ pub fn generate_leisure_from_relation(
     editor: &mut WorldEditor,
     rel: &ProcessedRelation,
     args: &Args,
+    context: &ElementContext,
 ) {
     if rel.tags.get("leisure") == Some(&"park".to_string()) {
         // First generate individual ways with their original tags
         for member in &rel.members {
             if member.role == ProcessedMemberRole::Outer {
-                generate_leisure(editor, &member.way, args);
+                generate_leisure(editor, &member.way, args, context);
             }
         }
 
@@ -201,6 +208,6 @@ pub fn generate_leisure_from_relation(
         };
 
         // Generate leisure area from combined way
-        generate_leisure(editor, &combined_way, args);
+        generate_leisure(editor, &combined_way, args, context);
     }
 }

@@ -2,11 +2,17 @@ use crate::args::Args;
 use crate::block_definitions::*;
 use crate::bresenham::bresenham_line;
 use crate::coordinate_system::cartesian::XZPoint;
+use crate::element_context::ElementContext;
 use crate::floodfill::flood_fill_area;
 use crate::osm_parser::ProcessedElement;
 use crate::world_editor::WorldEditor;
 
-pub fn generate_amenities(editor: &mut WorldEditor, element: &ProcessedElement, args: &Args) {
+pub fn generate_amenities(
+    editor: &mut WorldEditor,
+    element: &ProcessedElement,
+    args: &Args,
+    _context: &ElementContext,
+) {
     // Skip if 'layer' or 'level' is negative in the tags
     if let Some(layer) = element.tags().get("layer") {
         if layer.parse::<i32>().unwrap_or(0) < 0 {

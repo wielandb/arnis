@@ -1,8 +1,13 @@
 use crate::block_definitions::*;
+use crate::element_context::ElementContext;
 use crate::osm_parser::ProcessedNode;
 use crate::world_editor::WorldEditor;
 
-pub fn generate_tourisms(editor: &mut WorldEditor, element: &ProcessedNode) {
+pub fn generate_tourisms(
+    editor: &mut WorldEditor,
+    element: &ProcessedNode,
+    _context: &ElementContext,
+) {
     // Skip if 'layer' or 'level' is negative in the tags
     if let Some(layer) = element.tags.get("layer") {
         if layer.parse::<i32>().unwrap_or(0) < 0 {

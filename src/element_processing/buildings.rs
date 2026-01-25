@@ -3,6 +3,7 @@ use crate::block_definitions::*;
 use crate::bresenham::bresenham_line;
 use crate::colors::color_text_to_rgb_tuple;
 use crate::coordinate_system::cartesian::XZPoint;
+use crate::element_context::ElementContext;
 use crate::element_processing::subprocessor::buildings_interior::generate_building_interior;
 use crate::floodfill::flood_fill_area;
 use crate::osm_parser::{ProcessedMemberRole, ProcessedRelation, ProcessedWay};
@@ -28,6 +29,7 @@ pub fn generate_buildings(
     element: &ProcessedWay,
     args: &Args,
     relation_levels: Option<i32>,
+    _context: &ElementContext,
 ) {
     // Get min_level first so we can use it both for start_level and building height calculations
     let min_level = if let Some(min_level_str) = element.tags.get("building:min_level") {
@@ -1484,6 +1486,7 @@ pub fn generate_building_from_relation(
     editor: &mut WorldEditor,
     relation: &ProcessedRelation,
     args: &Args,
+    context: &ElementContext,
 ) {
     // Extract levels from relation tags
     let relation_levels = relation
@@ -1495,7 +1498,7 @@ pub fn generate_building_from_relation(
     // Process the outer way to create the building walls
     for member in &relation.members {
         if member.role == ProcessedMemberRole::Outer {
-            generate_buildings(editor, &member.way, args, Some(relation_levels));
+            generate_buildings(editor, &member.way, args, Some(relation_levels), context);
         }
     }
 

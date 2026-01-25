@@ -1,12 +1,18 @@
 use crate::args::Args;
 use crate::block_definitions::*;
+use crate::element_context::ElementContext;
 use crate::element_processing::tree::Tree;
 use crate::floodfill::flood_fill_area;
 use crate::osm_parser::{ProcessedMemberRole, ProcessedRelation, ProcessedWay};
 use crate::world_editor::WorldEditor;
 use rand::Rng;
 
-pub fn generate_landuse(editor: &mut WorldEditor, element: &ProcessedWay, args: &Args) {
+pub fn generate_landuse(
+    editor: &mut WorldEditor,
+    element: &ProcessedWay,
+    args: &Args,
+    _context: &ElementContext,
+) {
     // Determine block type based on landuse tag
     let binding: String = "".to_string();
     let landuse_tag: &String = element.tags.get("landuse").unwrap_or(&binding);
@@ -275,12 +281,13 @@ pub fn generate_landuse_from_relation(
     editor: &mut WorldEditor,
     rel: &ProcessedRelation,
     args: &Args,
+    context: &ElementContext,
 ) {
     if rel.tags.contains_key("landuse") {
         // Generate individual ways with their original tags
         for member in &rel.members {
             if member.role == ProcessedMemberRole::Outer {
-                generate_landuse(editor, &member.way.clone(), args);
+                generate_landuse(editor, &member.way.clone(), args, context);
             }
         }
 
@@ -302,7 +309,7 @@ pub fn generate_landuse_from_relation(
             };
 
             // Generate landuse area from combined way
-            generate_landuse(editor, &combined_way, args);
+            generate_landuse(editor, &combined_way, args, context);
         }
     }
 }

@@ -1,11 +1,12 @@
 use crate::block_definitions::*;
 use crate::bresenham::bresenham_line;
+use crate::element_context::ElementContext;
 use crate::osm_parser::ProcessedWay;
 use crate::world_editor::WorldEditor;
 
 // TODO FIX
 #[allow(dead_code)]
-pub fn generate_bridges(editor: &mut WorldEditor, element: &ProcessedWay) {
+pub fn generate_bridges(editor: &mut WorldEditor, element: &ProcessedWay, _context: &ElementContext) {
     if let Some(_bridge_type) = element.tags.get("bridge") {
         let bridge_height = 3; // Fixed height
 

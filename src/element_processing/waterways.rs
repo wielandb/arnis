@@ -1,9 +1,14 @@
 use crate::block_definitions::*;
 use crate::bresenham::bresenham_line;
+use crate::element_context::ElementContext;
 use crate::osm_parser::ProcessedWay;
 use crate::world_editor::WorldEditor;
 
-pub fn generate_waterways(editor: &mut WorldEditor, element: &ProcessedWay) {
+pub fn generate_waterways(
+    editor: &mut WorldEditor,
+    element: &ProcessedWay,
+    _context: &ElementContext,
+) {
     if let Some(waterway_type) = element.tags.get("waterway") {
         let (mut waterway_width, waterway_depth) = get_waterway_dimensions(waterway_type);
 

@@ -1,13 +1,19 @@
 use crate::args::Args;
 use crate::block_definitions::*;
 use crate::bresenham::bresenham_line;
+use crate::element_context::ElementContext;
 use crate::element_processing::tree::Tree;
 use crate::floodfill::flood_fill_area;
 use crate::osm_parser::{ProcessedElement, ProcessedMemberRole, ProcessedRelation, ProcessedWay};
 use crate::world_editor::WorldEditor;
 use rand::Rng;
 
-pub fn generate_natural(editor: &mut WorldEditor, element: &ProcessedElement, args: &Args) {
+pub fn generate_natural(
+    editor: &mut WorldEditor,
+    element: &ProcessedElement,
+    args: &Args,
+    _context: &ElementContext,
+) {
     if let Some(natural_type) = element.tags().get("natural") {
         if natural_type == "tree" {
             if let ProcessedElement::Node(node) = element {
@@ -448,12 +454,18 @@ pub fn generate_natural_from_relation(
     editor: &mut WorldEditor,
     rel: &ProcessedRelation,
     args: &Args,
+    context: &ElementContext,
 ) {
     if rel.tags.contains_key("natural") {
         // Generate individual ways with their original tags
         for member in &rel.members {
             if member.role == ProcessedMemberRole::Outer {
-                generate_natural(editor, &ProcessedElement::Way(member.way.clone()), args);
+                generate_natural(
+                    editor,
+                    &ProcessedElement::Way(member.way.clone()),
+                    args,
+                    context,
+                );
             }
         }
 
@@ -475,7 +487,12 @@ pub fn generate_natural_from_relation(
             };
 
             // Generate natural area from combined way
-            generate_natural(editor, &ProcessedElement::Way(combined_way), args);
+            generate_natural(
+                editor,
+                &ProcessedElement::Way(combined_way),
+                args,
+                context,
+            );
         }
     }
 }

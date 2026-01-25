@@ -1,10 +1,16 @@
 use crate::args::Args;
 use crate::block_definitions::*;
 use crate::bresenham::bresenham_line;
+use crate::element_context::ElementContext;
 use crate::osm_parser::{ProcessedElement, ProcessedNode};
 use crate::world_editor::WorldEditor;
 
-pub fn generate_man_made(editor: &mut WorldEditor, element: &ProcessedElement, _args: &Args) {
+pub fn generate_man_made(
+    editor: &mut WorldEditor,
+    element: &ProcessedElement,
+    _args: &Args,
+    _context: &ElementContext,
+) {
     // Skip if 'layer' or 'level' is negative in the tags
     if let Some(layer) = element.tags().get("layer") {
         if layer.parse::<i32>().unwrap_or(0) < 0 {
@@ -240,7 +246,11 @@ fn generate_water_tower(editor: &mut WorldEditor, element: &ProcessedElement) {
 }
 
 /// Generate man_made structures for node elements
-pub fn generate_man_made_nodes(editor: &mut WorldEditor, node: &ProcessedNode) {
+pub fn generate_man_made_nodes(
+    editor: &mut WorldEditor,
+    node: &ProcessedNode,
+    _context: &ElementContext,
+) {
     if let Some(man_made_type) = node.tags.get("man_made") {
         let element = ProcessedElement::Node(node.clone());
 

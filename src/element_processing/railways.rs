@@ -1,9 +1,14 @@
 use crate::block_definitions::*;
 use crate::bresenham::bresenham_line;
+use crate::element_context::ElementContext;
 use crate::osm_parser::ProcessedWay;
 use crate::world_editor::WorldEditor;
 
-pub fn generate_railways(editor: &mut WorldEditor, element: &ProcessedWay) {
+pub fn generate_railways(
+    editor: &mut WorldEditor,
+    element: &ProcessedWay,
+    _context: &ElementContext,
+) {
     if let Some(railway_type) = element.tags.get("railway") {
         if [
             "proposed",
@@ -175,7 +180,11 @@ fn determine_rail_direction(
     }
 }
 
-pub fn generate_roller_coaster(editor: &mut WorldEditor, element: &ProcessedWay) {
+pub fn generate_roller_coaster(
+    editor: &mut WorldEditor,
+    element: &ProcessedWay,
+    _context: &ElementContext,
+) {
     if let Some(roller_coaster) = element.tags.get("roller_coaster") {
         if roller_coaster == "track" {
             // Check if it's indoor (skip if yes)
