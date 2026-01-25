@@ -6,7 +6,7 @@ use crate::coordinate_system::cartesian::XZPoint;
 use crate::element_context::ElementContext;
 use crate::element_processing::subprocessor::buildings_interior::generate_building_interior;
 use crate::floodfill::flood_fill_area;
-use crate::osm_parser::{ProcessedMemberRole, ProcessedRelation, ProcessedWay};
+use crate::osm_parser::{ProcessedMemberRole, ProcessedNode, ProcessedRelation, ProcessedWay};
 use crate::world_editor::WorldEditor;
 use rand::Rng;
 use std::collections::HashSet;
@@ -29,7 +29,7 @@ pub fn generate_buildings(
     element: &ProcessedWay,
     args: &Args,
     relation_levels: Option<i32>,
-    _context: &ElementContext,
+    context: &ElementContext,
 ) {
     // Get min_level first so we can use it both for start_level and building height calculations
     let min_level = if let Some(min_level_str) = element.tags.get("building:min_level") {
@@ -718,6 +718,82 @@ pub fn generate_buildings(
         }
     } else {
         // Default flat roof - already handled by the building generation code
+    }
+
+    if building_type == "apartments" {
+        let has_entrance_node = context
+            .tagged_nodes_on_way(element.id)
+            .map(|nodes| {
+                nodes.iter().any(|node| {
+                    node.tags.contains_key("entrance") || node.tags.contains_key("door")
+                })
+            })
+            .unwrap_or(false);
+
+        if !has_entrance_node {
+            if let Some((door_x, door_z)) = choose_random_wall_point(&element.nodes, &mut rng) {
+                let door_y = start_y_offset + 1 + abs_terrain_offset;
+                let override_blocks = [wall_block, window_block, accent_block];
+
+                editor.set_block_absolute(
+                    DARK_OAK_DOOR_LOWER,
+                    door_x,
+                    door_y,
+                    door_z,
+                    Some(&override_blocks),
+                    None,
+                );
+                editor.set_block_absolute(
+                    DARK_OAK_DOOR_UPPER,
+                    door_x,
+                    door_y + 1,
+                    door_z,
+                    Some(&override_blocks),
+                    None,
+                );
+            }
+        }
+    }
+}
+
+fn choose_random_wall_point(
+    nodes: &[ProcessedNode],
+    rng: &mut impl Rng,
+) -> Option<(i32, i32)> {
+    if nodes.len() < 2 {
+        return None;
+    }
+
+    let mut points: Vec<(i32, i32)> = Vec::new();
+    let mut seen: HashSet<(i32, i32)> = HashSet::new();
+
+    for i in 1..nodes.len() {
+        let prev = &nodes[i - 1];
+        let cur = &nodes[i];
+        let line = bresenham_line(prev.x, 0, prev.z, cur.x, 0, cur.z);
+
+        for (idx, (x, _, z)) in line.iter().enumerate() {
+            if line.len() > 2 && (idx == 0 || idx + 1 == line.len()) {
+                continue;
+            }
+            if seen.insert((*x, *z)) {
+                points.push((*x, *z));
+            }
+        }
+    }
+
+    if points.is_empty() {
+        for node in nodes {
+            if seen.insert((node.x, node.z)) {
+                points.push((node.x, node.z));
+            }
+        }
+    }
+
+    if points.is_empty() {
+        None
+    } else {
+        Some(points[rng.gen_range(0..points.len())])
     }
 }
 
