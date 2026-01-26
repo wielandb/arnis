@@ -68,6 +68,7 @@ impl Bounds {
 }
 
 #[derive(Clone, Copy, Debug)]
+#[allow(dead_code)]
 pub struct WayRef<'a> {
     pub id: u64,
     pub tags: &'a HashMap<String, String>,
@@ -75,7 +76,9 @@ pub struct WayRef<'a> {
 
 pub struct ElementContext<'a> {
     way_tagged_nodes: HashMap<u64, Vec<&'a ProcessedNode>>,
+    #[allow(dead_code)]
     node_parent_ways: HashMap<u64, Vec<WayRef<'a>>>,
+    #[allow(dead_code)]
     area_contained_elements: HashMap<u64, Vec<&'a ProcessedElement>>,
 }
 
@@ -116,10 +119,7 @@ impl<'a> ElementContext<'a> {
                 if !tagged_node_ids.contains(&node.id) {
                     continue;
                 }
-                node_parent_ways
-                    .entry(node.id)
-                    .or_default()
-                    .push(way_ref);
+                node_parent_ways.entry(node.id).or_default().push(way_ref);
             }
 
             if is_closed_way(way) && !way.tags.is_empty() {
@@ -167,16 +167,15 @@ impl<'a> ElementContext<'a> {
             .map(|nodes| nodes.as_slice())
     }
 
+    #[allow(dead_code)]
     pub fn parent_ways_for_node(&self, node_id: u64) -> Option<&[WayRef<'a>]> {
         self.node_parent_ways
             .get(&node_id)
             .map(|ways| ways.as_slice())
     }
 
-    pub fn contained_elements_for_area(
-        &self,
-        way_id: u64,
-    ) -> Option<&[&'a ProcessedElement]> {
+    #[allow(dead_code)]
+    pub fn contained_elements_for_area(&self, way_id: u64) -> Option<&[&'a ProcessedElement]> {
         self.area_contained_elements
             .get(&way_id)
             .map(|elements| elements.as_slice())
@@ -210,10 +209,7 @@ impl SpatialIndex {
         let (min_x, max_x, min_z, max_z) = self.cell_range(bounds);
         for cell_x in min_x..=max_x {
             for cell_z in min_z..=max_z {
-                self.cells
-                    .entry((cell_x, cell_z))
-                    .or_default()
-                    .push(index);
+                self.cells.entry((cell_x, cell_z)).or_default().push(index);
             }
         }
     }
@@ -260,12 +256,7 @@ fn choose_cell_size(xzbbox: &XZBBox) -> i32 {
     let height = (xzbbox.max_z() - xzbbox.min_z()).abs().max(1);
     let max_dim = width.max(height);
     let mut size = max_dim / 64;
-    if size < 32 {
-        size = 32;
-    }
-    if size > 256 {
-        size = 256;
-    }
+    size = size.clamp(32, 256);
     size
 }
 
@@ -378,8 +369,7 @@ fn point_in_polygon(px: i32, pz: i32, polygon: &[ProcessedNode], bounds: &Bounds
         }
 
         let intersect = ((zi > pz) != (zj > pz))
-            && ((px as f64)
-                < (xj - xi) as f64 * (pz - zi) as f64 / (zj - zi) as f64 + xi as f64);
+            && ((px as f64) < (xj - xi) as f64 * (pz - zi) as f64 / (zj - zi) as f64 + xi as f64);
         if intersect {
             inside = !inside;
         }
@@ -390,8 +380,7 @@ fn point_in_polygon(px: i32, pz: i32, polygon: &[ProcessedNode], bounds: &Bounds
 }
 
 fn point_on_segment(px: i32, pz: i32, x1: i32, z1: i32, x2: i32, z2: i32) -> bool {
-    let cross = (px - x1) as i64 * (z2 - z1) as i64
-        - (pz - z1) as i64 * (x2 - x1) as i64;
+    let cross = (px - x1) as i64 * (z2 - z1) as i64 - (pz - z1) as i64 * (x2 - x1) as i64;
     if cross != 0 {
         return false;
     }

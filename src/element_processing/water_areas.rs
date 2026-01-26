@@ -1,6 +1,5 @@
 use geo::orient::{Direction, Orient};
 use geo::{Contains, Intersects, LineString, Point, Polygon, Rect};
-use std::time::Instant;
 
 use crate::clipping::clip_water_ring_to_bbox;
 use crate::{
@@ -17,15 +16,13 @@ pub fn generate_water_area_from_way(
     _xzbbox: &XZBBox,
     _context: &ElementContext,
 ) {
-    let start_time = Instant::now();
-
     let outers = [element.nodes.clone()];
     if !verify_closed_rings(&outers) {
         println!("Skipping way {} due to invalid polygon", element.id);
         return;
     }
 
-    generate_water_areas(editor, &outers, &[], start_time);
+    generate_water_areas(editor, &outers, &[]);
 }
 
 pub fn generate_water_areas_from_relation(
@@ -34,8 +31,6 @@ pub fn generate_water_areas_from_relation(
     xzbbox: &XZBBox,
     _context: &ElementContext,
 ) {
-    let start_time = Instant::now();
-
     // Check if this is a water relation (either with water tag or natural=water)
     let is_water = element.tags.contains_key("water")
         || element
@@ -126,14 +121,13 @@ pub fn generate_water_areas_from_relation(
         return;
     }
 
-    generate_water_areas(editor, &outers, &inners, start_time);
+    generate_water_areas(editor, &outers, &inners);
 }
 
 fn generate_water_areas(
     editor: &mut WorldEditor,
     outers: &[Vec<ProcessedNode>],
     inners: &[Vec<ProcessedNode>],
-    start_time: Instant,
 ) {
     // Calculate polygon bounding box to limit fill area
     let mut poly_min_x = i32::MAX;
@@ -172,9 +166,7 @@ fn generate_water_areas(
         .map(|x| x.iter().map(|y| y.xz()).collect::<Vec<_>>())
         .collect();
 
-    inverse_floodfill(
-        min_x, min_z, max_x, max_z, outers_xz, inners_xz, editor, start_time,
-    );
+    inverse_floodfill(min_x, min_z, max_x, max_z, outers_xz, inners_xz, editor);
 }
 
 /// Merges way segments that share endpoints into closed rings.
@@ -311,7 +303,6 @@ fn inverse_floodfill(
     outers: Vec<Vec<XZPoint>>,
     inners: Vec<Vec<XZPoint>>,
     editor: &mut WorldEditor,
-    start_time: Instant,
 ) {
     // Convert to geo Polygons with normalized winding order
     let inners: Vec<_> = inners
@@ -344,14 +335,7 @@ fn inverse_floodfill(
         })
         .collect();
 
-    inverse_floodfill_recursive(
-        (min_x, min_z),
-        (max_x, max_z),
-        &outers,
-        &inners,
-        editor,
-        start_time,
-    );
+    inverse_floodfill_recursive((min_x, min_z), (max_x, max_z), &outers, &inners, editor);
 }
 
 fn inverse_floodfill_recursive(
@@ -360,12 +344,11 @@ fn inverse_floodfill_recursive(
     outers: &[Polygon],
     inners: &[Polygon],
     editor: &mut WorldEditor,
-    start_time: Instant,
 ) {
-    // Check if we've exceeded 25 seconds
-    if start_time.elapsed().as_secs() > 25 {
-        println!("Water area generation exceeded 25 seconds, continuing anyway");
-    }
+    // Check if we've exceeded 40 seconds
+    // if start_time.elapsed().as_secs() > 40 {
+    //     println!("Water area generation exceeded 40 seconds, continuing anyway");
+    // }
 
     const ITERATIVE_THRES: i64 = 10_000;
 
@@ -420,7 +403,6 @@ fn inverse_floodfill_recursive(
                 &outers_intersects,
                 &inners_intersects,
                 editor,
-                start_time,
             );
         }
     }

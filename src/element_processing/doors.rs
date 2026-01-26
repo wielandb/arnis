@@ -3,7 +3,11 @@ use crate::element_context::ElementContext;
 use crate::osm_parser::ProcessedNode;
 use crate::world_editor::WorldEditor;
 
-pub fn generate_doors(editor: &mut WorldEditor, element: &ProcessedNode, _context: &ElementContext) {
+pub fn generate_doors(
+    editor: &mut WorldEditor,
+    element: &ProcessedNode,
+    _context: &ElementContext,
+) {
     // Check if the element is a door or entrance
     if element.tags.contains_key("door") || element.tags.contains_key("entrance") {
         // Check for the "level" tag and skip doors that are not at ground level

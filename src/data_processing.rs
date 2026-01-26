@@ -4,6 +4,7 @@ use crate::coordinate_system::cartesian::XZBBox;
 use crate::coordinate_system::geographic::LLBBox;
 use crate::element_context::ElementContext;
 use crate::element_processing::*;
+use crate::floodfill_cache::FloodFillCache;
 use crate::ground::Ground;
 use crate::map_renderer;
 use crate::osm_parser::ProcessedElement;
@@ -14,6 +15,7 @@ use crate::world_editor::{WorldEditor, WorldFormat};
 use colored::Colorize;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 pub const MIN_Y: i32 = -64;
 
@@ -54,14 +56,17 @@ pub fn generate_world_with_options(
 ) -> Result<PathBuf, String> {
     let output_path = options.path.clone();
     let world_format = options.format;
+
+    // Create editor with appropriate format
     let mut editor: WorldEditor = WorldEditor::new_with_format_and_name(
         options.path,
         &xzbbox,
         llbbox,
         options.format,
-        options.level_name,
+        options.level_name.clone(),
         options.spawn_point,
     );
+    let ground = Arc::new(ground);
 
     println!("{} Processing data...", "[4/7]".bold());
 
@@ -71,10 +76,17 @@ pub fn generate_world_with_options(
     let highway_connectivity = highways::build_highway_connectivity_map(&elements);
 
     // Set ground reference in the editor to enable elevation-aware block placement
-    editor.set_ground(&ground);
+    editor.set_ground(Arc::clone(&ground));
 
     println!("{} Processing terrain...", "[5/7]".bold());
     emit_gui_progress_update(25.0, "Processing terrain...");
+
+    // Pre-compute all flood fills in parallel for better CPU utilization
+    let mut flood_fill_cache = FloodFillCache::precompute(&elements, args.timeout.as_ref());
+
+    // Collect building footprints to prevent trees from spawning inside buildings
+    // Uses a memory-efficient bitmap (~1 bit per coordinate) instead of a HashSet (~24 bytes per coordinate)
+    let building_footprints = flood_fill_cache.collect_building_footprints(&elements, &xzbbox);
 
     // Process data
     let elements_count: usize = elements.len();
@@ -88,7 +100,8 @@ pub fn generate_world_with_options(
     let mut current_progress_prcs: f64 = 25.0;
     let mut last_emitted_progress: f64 = current_progress_prcs;
 
-    for element in &elements {
+    // Process elements in insertion order
+    for element in elements.iter() {
         process_pb.inc(1);
         current_progress_prcs += progress_increment_prcs;
         if (current_progress_prcs - last_emitted_progress).abs() > 0.25 {
@@ -109,23 +122,58 @@ pub fn generate_world_with_options(
         match element {
             ProcessedElement::Way(way) => {
                 if way.tags.contains_key("building") || way.tags.contains_key("building:part") {
-                    buildings::generate_buildings(&mut editor, way, args, None, &element_context);
+                    buildings::generate_buildings(
+                        &mut editor,
+                        way,
+                        args,
+                        None,
+                        &flood_fill_cache,
+                        &element_context,
+                    );
                 } else if way.tags.contains_key("highway") {
                     highways::generate_highways(
                         &mut editor,
                         element,
                         args,
                         &highway_connectivity,
+                        &flood_fill_cache,
                         &element_context,
                     );
                 } else if way.tags.contains_key("landuse") {
-                    landuse::generate_landuse(&mut editor, way, args, &element_context);
+                    landuse::generate_landuse(
+                        &mut editor,
+                        way,
+                        args,
+                        &flood_fill_cache,
+                        &building_footprints,
+                        &element_context,
+                    );
                 } else if way.tags.contains_key("natural") {
-                    natural::generate_natural(&mut editor, element, args, &element_context);
+                    natural::generate_natural(
+                        &mut editor,
+                        element,
+                        args,
+                        &flood_fill_cache,
+                        &building_footprints,
+                        &element_context,
+                    );
                 } else if way.tags.contains_key("amenity") {
-                    amenities::generate_amenities(&mut editor, element, args, &element_context);
+                    amenities::generate_amenities(
+                        &mut editor,
+                        element,
+                        args,
+                        &flood_fill_cache,
+                        &element_context,
+                    );
                 } else if way.tags.contains_key("leisure") {
-                    leisure::generate_leisure(&mut editor, way, args, &element_context);
+                    leisure::generate_leisure(
+                        &mut editor,
+                        way,
+                        args,
+                        &flood_fill_cache,
+                        &building_footprints,
+                        &element_context,
+                    );
                 } else if way.tags.contains_key("barrier") {
                     barriers::generate_barriers(&mut editor, element, &element_context);
                 } else if let Some(val) = way.tags.get("waterway") {
@@ -154,6 +202,8 @@ pub fn generate_world_with_options(
                 } else if way.tags.contains_key("man_made") {
                     man_made::generate_man_made(&mut editor, element, args, &element_context);
                 }
+                // Release flood fill cache entry for this way
+                flood_fill_cache.remove_way(way.id);
             }
             ProcessedElement::Node(node) => {
                 if node.tags.contains_key("door") || node.tags.contains_key("entrance") {
@@ -161,9 +211,22 @@ pub fn generate_world_with_options(
                 } else if node.tags.contains_key("natural")
                     && node.tags.get("natural") == Some(&"tree".to_string())
                 {
-                    natural::generate_natural(&mut editor, element, args, &element_context);
+                    natural::generate_natural(
+                        &mut editor,
+                        element,
+                        args,
+                        &flood_fill_cache,
+                        &building_footprints,
+                        &element_context,
+                    );
                 } else if node.tags.contains_key("amenity") {
-                    amenities::generate_amenities(&mut editor, element, args, &element_context);
+                    amenities::generate_amenities(
+                        &mut editor,
+                        element,
+                        args,
+                        &flood_fill_cache,
+                        &element_context,
+                    );
                 } else if node.tags.contains_key("barrier") {
                     barriers::generate_barrier_nodes(&mut editor, node, &element_context);
                 } else if node.tags.contains_key("highway") {
@@ -172,6 +235,7 @@ pub fn generate_world_with_options(
                         element,
                         args,
                         &highway_connectivity,
+                        &flood_fill_cache,
                         &element_context,
                     );
                 } else if node.tags.contains_key("tourism") {
@@ -186,6 +250,7 @@ pub fn generate_world_with_options(
                         &mut editor,
                         rel,
                         args,
+                        &flood_fill_cache,
                         &element_context,
                     );
                 } else if rel.tags.contains_key("water")
@@ -206,6 +271,8 @@ pub fn generate_world_with_options(
                         &mut editor,
                         rel,
                         args,
+                        &flood_fill_cache,
+                        &building_footprints,
                         &element_context,
                     );
                 } else if rel.tags.contains_key("landuse") {
@@ -213,6 +280,8 @@ pub fn generate_world_with_options(
                         &mut editor,
                         rel,
                         args,
+                        &flood_fill_cache,
+                        &building_footprints,
                         &element_context,
                     );
                 } else if rel.tags.get("leisure") == Some(&"park".to_string()) {
@@ -220,21 +289,26 @@ pub fn generate_world_with_options(
                         &mut editor,
                         rel,
                         args,
+                        &flood_fill_cache,
+                        &building_footprints,
                         &element_context,
                     );
                 } else if rel.tags.contains_key("man_made") {
-                    man_made::generate_man_made(
-                        &mut editor,
-                        &ProcessedElement::Relation(rel.clone()),
-                        args,
-                        &element_context,
-                    );
+                    man_made::generate_man_made(&mut editor, element, args, &element_context);
                 }
+                // Release flood fill cache entries for all ways in this relation
+                let way_ids: Vec<u64> = rel.members.iter().map(|m| m.way.id).collect();
+                flood_fill_cache.remove_relation_ways(&way_ids);
             }
         }
+        // Elements are dropped after processing once this function returns
     }
 
     process_pb.finish();
+
+    // Drop remaining caches
+    drop(highway_connectivity);
+    drop(flood_fill_cache);
 
     // Generate ground layer
     let total_blocks: u64 = xzbbox.bounding_rect().total_blocks();
@@ -259,46 +333,72 @@ pub fn generate_world_with_options(
     let total_iterations_grnd: f64 = total_blocks as f64;
     let progress_increment_grnd: f64 = 20.0 / total_iterations_grnd;
 
-    let groundlayer_block = GRASS_BLOCK;
+    // Check if terrain elevation is enabled; when disabled, we can skip ground level lookups entirely
+    let terrain_enabled = ground.elevation_enabled;
 
-    for x in xzbbox.min_x()..=xzbbox.max_x() {
-        for z in xzbbox.min_z()..=xzbbox.max_z() {
-            // Add default dirt and grass layer if there isn't a stone layer already
-            if !editor.check_for_block(x, 0, z, Some(&[STONE])) {
-                editor.set_block(groundlayer_block, x, 0, z, None, None);
-                editor.set_block(DIRT, x, -1, z, None, None);
-                editor.set_block(DIRT, x, -2, z, None, None);
-            }
+    // Process ground generation chunk-by-chunk for better cache locality.
+    // This keeps the same region/chunk HashMap entries hot in CPU cache,
+    // rather than jumping between regions on every Z iteration.
+    let min_chunk_x = xzbbox.min_x() >> 4;
+    let max_chunk_x = xzbbox.max_x() >> 4;
+    let min_chunk_z = xzbbox.min_z() >> 4;
+    let max_chunk_z = xzbbox.max_z() >> 4;
 
-            // Fill underground with stone
-            if args.fillground {
-                // Fill from bedrock+1 to 3 blocks below ground with stone
-                editor.fill_blocks_absolute(
-                    STONE,
-                    x,
-                    MIN_Y + 1,
-                    z,
-                    x,
-                    editor.get_absolute_y(x, -3, z),
-                    z,
-                    None,
-                    None,
-                );
-            }
-            // Generate a bedrock level at MIN_Y
-            editor.set_block_absolute(BEDROCK, x, MIN_Y, z, None, Some(&[BEDROCK]));
+    for chunk_x in min_chunk_x..=max_chunk_x {
+        for chunk_z in min_chunk_z..=max_chunk_z {
+            // Calculate the block range for this chunk, clamped to bbox
+            let chunk_min_x = (chunk_x << 4).max(xzbbox.min_x());
+            let chunk_max_x = ((chunk_x << 4) + 15).min(xzbbox.max_x());
+            let chunk_min_z = (chunk_z << 4).max(xzbbox.min_z());
+            let chunk_max_z = ((chunk_z << 4) + 15).min(xzbbox.max_z());
 
-            block_counter += 1;
-            // Use manual % check since is_multiple_of() is unstable on stable Rust
-            #[allow(clippy::manual_is_multiple_of)]
-            if block_counter % batch_size == 0 {
-                ground_pb.inc(batch_size);
-            }
+            for x in chunk_min_x..=chunk_max_x {
+                for z in chunk_min_z..=chunk_max_z {
+                    // Get ground level, when terrain is enabled, look it up once per block
+                    // When disabled, use constant ground_level (no function call overhead)
+                    let ground_y = if terrain_enabled {
+                        editor.get_ground_level(x, z)
+                    } else {
+                        args.ground_level
+                    };
 
-            gui_progress_grnd += progress_increment_grnd;
-            if (gui_progress_grnd - last_emitted_progress).abs() > 0.25 {
-                emit_gui_progress_update(gui_progress_grnd, "");
-                last_emitted_progress = gui_progress_grnd;
+                    // Add default dirt and grass layer if there isn't a stone layer already
+                    if !editor.check_for_block_absolute(x, ground_y, z, Some(&[STONE]), None) {
+                        editor.set_block_absolute(GRASS_BLOCK, x, ground_y, z, None, None);
+                        editor.set_block_absolute(DIRT, x, ground_y - 1, z, None, None);
+                        editor.set_block_absolute(DIRT, x, ground_y - 2, z, None, None);
+                    }
+
+                    // Fill underground with stone
+                    if args.fillground {
+                        // Fill from bedrock+1 to 3 blocks below ground with stone
+                        editor.fill_blocks_absolute(
+                            STONE,
+                            x,
+                            MIN_Y + 1,
+                            z,
+                            x,
+                            ground_y - 3,
+                            z,
+                            None,
+                            None,
+                        );
+                    }
+                    // Generate a bedrock level at MIN_Y
+                    editor.set_block_absolute(BEDROCK, x, MIN_Y, z, None, Some(&[BEDROCK]));
+
+                    block_counter += 1;
+                    #[allow(clippy::manual_is_multiple_of)]
+                    if block_counter % batch_size == 0 {
+                        ground_pb.inc(batch_size);
+                    }
+
+                    gui_progress_grnd += progress_increment_grnd;
+                    if (gui_progress_grnd - last_emitted_progress).abs() > 0.25 {
+                        emit_gui_progress_update(gui_progress_grnd, "");
+                        last_emitted_progress = gui_progress_grnd;
+                    }
+                }
             }
         }
     }
@@ -326,28 +426,28 @@ pub fn generate_world_with_options(
     // Update player spawn Y coordinate based on terrain height after generation
     #[cfg(feature = "gui")]
     if world_format == WorldFormat::JavaAnvil {
-        if let Some(spawn_coords) = &args.spawn_point {
-            use crate::gui::update_player_spawn_y_after_generation;
-            let bbox_string = format!(
-                "{},{},{},{}",
-                args.bbox.min().lng(),
-                args.bbox.min().lat(),
-                args.bbox.max().lng(),
-                args.bbox.max().lat()
-            );
+        use crate::gui::update_player_spawn_y_after_generation;
+        // Reconstruct bbox string to match the format that GUI originally provided.
+        // This ensures LLBBox::from_str() can parse it correctly.
+        let bbox_string = format!(
+            "{},{},{},{}",
+            args.bbox.min().lat(),
+            args.bbox.min().lng(),
+            args.bbox.max().lat(),
+            args.bbox.max().lng()
+        );
 
-            if let Err(e) = update_player_spawn_y_after_generation(
-                &args.path,
-                Some(*spawn_coords),
-                bbox_string,
-                args.scale,
-                &ground,
-            ) {
-                let warning_msg = format!("Failed to update spawn point Y coordinate: {}", e);
-                eprintln!("Warning: {}", warning_msg);
-                #[cfg(feature = "gui")]
-                send_log(LogLevel::Warning, &warning_msg);
-            }
+        // Always update spawn Y since we now always set a spawn point (user-selected or default)
+        if let Err(e) = update_player_spawn_y_after_generation(
+            &args.path,
+            bbox_string,
+            args.scale,
+            ground.as_ref(),
+        ) {
+            let warning_msg = format!("Failed to update spawn point Y coordinate: {}", e);
+            eprintln!("Warning: {}", warning_msg);
+            #[cfg(feature = "gui")]
+            send_log(LogLevel::Warning, &warning_msg);
         }
     }
 
