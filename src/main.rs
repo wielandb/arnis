@@ -10,6 +10,7 @@ mod colors;
 mod coordinate_system;
 mod data_processing;
 mod deterministic_rng;
+mod element_context;
 mod element_processing;
 mod elevation_data;
 mod floodfill;

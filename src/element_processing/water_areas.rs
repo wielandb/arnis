@@ -5,6 +5,7 @@ use crate::clipping::clip_water_ring_to_bbox;
 use crate::{
     block_definitions::WATER,
     coordinate_system::cartesian::{XZBBox, XZPoint},
+    element_context::ElementContext,
     osm_parser::{ProcessedMemberRole, ProcessedNode, ProcessedRelation, ProcessedWay},
     world_editor::WorldEditor,
 };
@@ -13,6 +14,7 @@ pub fn generate_water_area_from_way(
     editor: &mut WorldEditor,
     element: &ProcessedWay,
     _xzbbox: &XZBBox,
+    _context: &ElementContext,
 ) {
     let outers = [element.nodes.clone()];
     if !verify_closed_rings(&outers) {
@@ -27,6 +29,7 @@ pub fn generate_water_areas_from_relation(
     editor: &mut WorldEditor,
     element: &ProcessedRelation,
     xzbbox: &XZBBox,
+    _context: &ElementContext,
 ) {
     // Check if this is a water relation (either with water tag or natural=water)
     let is_water = element.tags.contains_key("water")

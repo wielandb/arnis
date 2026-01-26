@@ -3,6 +3,7 @@ use crate::block_definitions::*;
 use crate::bresenham::bresenham_line;
 use crate::coordinate_system::cartesian::XZPoint;
 use crate::deterministic_rng::element_rng;
+use crate::element_context::ElementContext;
 use crate::floodfill::flood_fill_area; // Needed for inline amenity flood fills
 use crate::floodfill_cache::FloodFillCache;
 use crate::osm_parser::ProcessedElement;
@@ -16,6 +17,7 @@ pub fn generate_amenities(
     element: &ProcessedElement,
     args: &Args,
     flood_fill_cache: &FloodFillCache,
+    _context: &ElementContext,
 ) {
     // Skip if 'layer' or 'level' is negative in the tags
     if let Some(layer) = element.tags().get("layer") {

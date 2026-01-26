@@ -2,6 +2,7 @@ use crate::args::Args;
 use crate::block_definitions::*;
 use crate::bresenham::bresenham_line;
 use crate::deterministic_rng::element_rng;
+use crate::element_context::ElementContext;
 use crate::element_processing::tree::{Tree, TreeType};
 use crate::floodfill_cache::{BuildingFootprintBitmap, FloodFillCache};
 use crate::osm_parser::{ProcessedElement, ProcessedMemberRole, ProcessedRelation, ProcessedWay};
@@ -15,6 +16,7 @@ pub fn generate_natural(
     args: &Args,
     flood_fill_cache: &FloodFillCache,
     building_footprints: &BuildingFootprintBitmap,
+    _context: &ElementContext,
 ) {
     if let Some(natural_type) = element.tags().get("natural") {
         if natural_type == "tree" {
@@ -549,6 +551,7 @@ pub fn generate_natural_from_relation(
     args: &Args,
     flood_fill_cache: &FloodFillCache,
     building_footprints: &BuildingFootprintBitmap,
+    _context: &ElementContext,
 ) {
     if rel.tags.contains_key("natural") {
         // Generate individual ways with their original tags
@@ -560,6 +563,7 @@ pub fn generate_natural_from_relation(
                     args,
                     flood_fill_cache,
                     building_footprints,
+                    _context,
                 );
             }
         }
@@ -588,6 +592,7 @@ pub fn generate_natural_from_relation(
                 args,
                 flood_fill_cache,
                 building_footprints,
+                _context,
             );
         }
     }

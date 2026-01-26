@@ -1,6 +1,7 @@
 use crate::args::Args;
 use crate::block_definitions::*;
 use crate::deterministic_rng::element_rng;
+use crate::element_context::ElementContext;
 use crate::element_processing::tree::{Tree, TreeType};
 use crate::floodfill_cache::{BuildingFootprintBitmap, FloodFillCache};
 use crate::osm_parser::{ProcessedMemberRole, ProcessedRelation, ProcessedWay};
@@ -14,6 +15,7 @@ pub fn generate_landuse(
     args: &Args,
     flood_fill_cache: &FloodFillCache,
     building_footprints: &BuildingFootprintBitmap,
+    _context: &ElementContext,
 ) {
     // Determine block type based on landuse tag
     let binding: String = "".to_string();
@@ -365,6 +367,7 @@ pub fn generate_landuse_from_relation(
     args: &Args,
     flood_fill_cache: &FloodFillCache,
     building_footprints: &BuildingFootprintBitmap,
+    _context: &ElementContext,
 ) {
     if rel.tags.contains_key("landuse") {
         // Generate individual ways with their original tags
@@ -376,6 +379,7 @@ pub fn generate_landuse_from_relation(
                     args,
                     flood_fill_cache,
                     building_footprints,
+                    _context,
                 );
             }
         }
@@ -404,6 +408,7 @@ pub fn generate_landuse_from_relation(
                 args,
                 flood_fill_cache,
                 building_footprints,
+                _context,
             );
         }
     }

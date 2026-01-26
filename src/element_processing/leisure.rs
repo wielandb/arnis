@@ -2,6 +2,7 @@ use crate::args::Args;
 use crate::block_definitions::*;
 use crate::bresenham::bresenham_line;
 use crate::deterministic_rng::element_rng;
+use crate::element_context::ElementContext;
 use crate::element_processing::tree::Tree;
 use crate::floodfill_cache::{BuildingFootprintBitmap, FloodFillCache};
 use crate::osm_parser::{ProcessedMemberRole, ProcessedRelation, ProcessedWay};
@@ -14,6 +15,7 @@ pub fn generate_leisure(
     args: &Args,
     flood_fill_cache: &FloodFillCache,
     building_footprints: &BuildingFootprintBitmap,
+    _context: &ElementContext,
 ) {
     if let Some(leisure_type) = element.tags.get("leisure") {
         let mut previous_node: Option<(i32, i32)> = None;
@@ -181,6 +183,7 @@ pub fn generate_leisure_from_relation(
     args: &Args,
     flood_fill_cache: &FloodFillCache,
     building_footprints: &BuildingFootprintBitmap,
+    _context: &ElementContext,
 ) {
     if rel.tags.get("leisure") == Some(&"park".to_string()) {
         // First generate individual ways with their original tags
@@ -192,6 +195,7 @@ pub fn generate_leisure_from_relation(
                     args,
                     flood_fill_cache,
                     building_footprints,
+                    _context,
                 );
             }
         }
@@ -218,6 +222,7 @@ pub fn generate_leisure_from_relation(
             args,
             flood_fill_cache,
             building_footprints,
+            _context,
         );
     }
 }
