@@ -243,6 +243,83 @@ impl<'a> WorldEditor<'a> {
         self.set_block(SIGN, x, y, z, None, None);
     }
 
+    /// Adds a block entity at the given absolute coordinates.
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_block_entity_absolute(
+        &mut self,
+        mut nbt: HashMap<String, Value>,
+        x: i32,
+        absolute_y: i32,
+        z: i32,
+    ) {
+        if !self.xzbbox.contains(&XZPoint::new(x, z)) {
+            return;
+        }
+
+        nbt.insert("x".to_string(), Value::Int(x));
+        nbt.insert("y".to_string(), Value::Int(absolute_y));
+        nbt.insert("z".to_string(), Value::Int(z));
+
+        let chunk_x = x >> 4;
+        let chunk_z = z >> 4;
+        let region_x = chunk_x >> 5;
+        let region_z = chunk_z >> 5;
+
+        let region = self.world.get_or_create_region(region_x, region_z);
+        let chunk = region.get_or_create_chunk(chunk_x & 31, chunk_z & 31);
+
+        if let Some(chunk_data) = chunk.other.get_mut("block_entities") {
+            if let Value::List(entities) = chunk_data {
+                entities.push(Value::Compound(nbt));
+                return;
+            }
+        }
+
+        chunk.other.insert(
+            "block_entities".to_string(),
+            Value::List(vec![Value::Compound(nbt)]),
+        );
+    }
+
+    /// Adds an entity at the given absolute position (Java Edition chunk NBT format).
+    pub fn add_entity_absolute(&mut self, mut nbt: HashMap<String, Value>, pos: (f64, f64, f64)) {
+        let block_x = pos.0.floor() as i32;
+        let block_z = pos.2.floor() as i32;
+
+        if !self.xzbbox.contains(&XZPoint::new(block_x, block_z)) {
+            return;
+        }
+
+        nbt.insert(
+            "Pos".to_string(),
+            Value::List(vec![
+                Value::Double(pos.0),
+                Value::Double(pos.1),
+                Value::Double(pos.2),
+            ]),
+        );
+
+        let chunk_x = block_x >> 4;
+        let chunk_z = block_z >> 4;
+        let region_x = chunk_x >> 5;
+        let region_z = chunk_z >> 5;
+
+        let region = self.world.get_or_create_region(region_x, region_z);
+        let chunk = region.get_or_create_chunk(chunk_x & 31, chunk_z & 31);
+
+        if let Some(chunk_data) = chunk.other.get_mut("entities") {
+            if let Value::List(entities) = chunk_data {
+                entities.push(Value::Compound(nbt));
+                return;
+            }
+        }
+
+        chunk.other.insert(
+            "entities".to_string(),
+            Value::List(vec![Value::Compound(nbt)]),
+        );
+    }
+
     /// Sets a block of the specified type at the given coordinates.
     ///
     /// Y value is interpreted as an offset from ground level.
