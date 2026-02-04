@@ -15,7 +15,7 @@ pub fn generate_leisure(
     args: &Args,
     flood_fill_cache: &FloodFillCache,
     building_footprints: &BuildingFootprintBitmap,
-    _context: &GenerationContext,
+    context: &GenerationContext,
 ) {
     if let Some(leisure_type) = element.tags.get("leisure") {
         let mut previous_node: Option<(i32, i32)> = None;
@@ -90,6 +90,19 @@ pub fn generate_leisure(
 
             // Use deterministic RNG seeded by element ID for consistent results across region boundaries
             let mut rng = element_rng(element.id);
+            let allow_playground_features = if leisure_type == "playground" {
+                !context
+                    .containing_objects
+                    .as_ref()
+                    .map(|objects| {
+                        objects
+                            .iter()
+                            .any(|object| object.tags.contains_key("playground"))
+                    })
+                    .unwrap_or(false)
+            } else {
+                true
+            };
 
             for (x, z) in filled_area {
                 editor.set_block(block_type, x, 0, z, Some(&[GRASS_BLOCK]), None);
@@ -128,7 +141,9 @@ pub fn generate_leisure(
                 }
 
                 // Add playground or recreation ground features
-                if matches!(leisure_type.as_str(), "playground" | "recreation_ground") {
+                if matches!(leisure_type.as_str(), "playground" | "recreation_ground")
+                    && allow_playground_features
+                {
                     let random_choice: i32 = rng.gen_range(0..5000);
 
                     match random_choice {
