@@ -1,11 +1,16 @@
 use crate::block_definitions::*;
 use crate::bresenham::bresenham_line;
+use crate::object_context::GenerationContext;
 use crate::osm_parser::ProcessedWay;
 use crate::world_editor::WorldEditor;
 
 // TODO FIX - This handles ways with bridge=yes tag (e.g., highway bridges)
 #[allow(dead_code)]
-pub fn generate_bridges(editor: &mut WorldEditor, element: &ProcessedWay) {
+pub fn generate_bridges(
+    editor: &mut WorldEditor,
+    element: &ProcessedWay,
+    _context: &GenerationContext,
+) {
     if let Some(_bridge_type) = element.tags.get("bridge") {
         let bridge_height = 3; // Height above the ground level
 

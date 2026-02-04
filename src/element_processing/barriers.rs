@@ -1,9 +1,14 @@
 use crate::block_definitions::*;
 use crate::bresenham::bresenham_line;
 use crate::osm_parser::{ProcessedElement, ProcessedNode};
+use crate::object_context::GenerationContext;
 use crate::world_editor::WorldEditor;
 
-pub fn generate_barriers(editor: &mut WorldEditor, element: &ProcessedElement) {
+pub fn generate_barriers(
+    editor: &mut WorldEditor,
+    element: &ProcessedElement,
+    _context: &GenerationContext,
+) {
     // Default values
     let mut barrier_material: Block = COBBLESTONE_WALL;
     let mut barrier_height: i32 = 2;
@@ -110,7 +115,11 @@ pub fn generate_barriers(editor: &mut WorldEditor, element: &ProcessedElement) {
     }
 }
 
-pub fn generate_barrier_nodes(editor: &mut WorldEditor<'_>, node: &ProcessedNode) {
+pub fn generate_barrier_nodes(
+    editor: &mut WorldEditor<'_>,
+    node: &ProcessedNode,
+    _context: &GenerationContext,
+) {
     match node.tags.get("barrier").map(|s| s.as_str()) {
         Some("bollard") => {
             editor.set_block(COBBLESTONE_WALL, node.x, 1, node.z, None, None);

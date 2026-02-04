@@ -3,6 +3,7 @@ use crate::block_definitions::*;
 use crate::deterministic_rng::element_rng;
 use crate::element_processing::tree::Tree;
 use crate::floodfill_cache::{BuildingFootprintBitmap, FloodFillCache};
+use crate::object_context::{ContextIndex, GenerationContext};
 use crate::osm_parser::{ProcessedMemberRole, ProcessedRelation, ProcessedWay};
 use crate::world_editor::WorldEditor;
 use rand::Rng;
@@ -13,6 +14,7 @@ pub fn generate_landuse(
     args: &Args,
     flood_fill_cache: &FloodFillCache,
     building_footprints: &BuildingFootprintBitmap,
+    _context: &GenerationContext,
 ) {
     // Determine block type based on landuse tag
     let binding: String = "".to_string();
@@ -333,17 +335,21 @@ pub fn generate_landuse_from_relation(
     args: &Args,
     flood_fill_cache: &FloodFillCache,
     building_footprints: &BuildingFootprintBitmap,
+    _context: &GenerationContext,
+    context_index: &ContextIndex,
 ) {
     if rel.tags.contains_key("landuse") {
         // Generate individual ways with their original tags
         for member in &rel.members {
             if member.role == ProcessedMemberRole::Outer {
+                let member_context = context_index.context_for_way(&member.way);
                 generate_landuse(
                     editor,
                     &member.way.clone(),
                     args,
                     flood_fill_cache,
                     building_footprints,
+                    &member_context,
                 );
             }
         }
@@ -366,12 +372,14 @@ pub fn generate_landuse_from_relation(
             };
 
             // Generate landuse area from combined way
+            let combined_context = context_index.context_for_way(&combined_way);
             generate_landuse(
                 editor,
                 &combined_way,
                 args,
                 flood_fill_cache,
                 building_footprints,
+                &combined_context,
             );
         }
     }

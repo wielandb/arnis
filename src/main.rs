@@ -18,6 +18,7 @@ mod ground;
 mod map_renderer;
 mod map_transformation;
 mod osm_parser;
+mod object_context;
 #[cfg(feature = "gui")]
 mod progress;
 mod retrieve_data;

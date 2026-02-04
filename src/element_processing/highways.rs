@@ -3,6 +3,7 @@ use crate::block_definitions::*;
 use crate::bresenham::bresenham_line;
 use crate::coordinate_system::cartesian::XZPoint;
 use crate::floodfill_cache::FloodFillCache;
+use crate::object_context::GenerationContext;
 use crate::osm_parser::{ProcessedElement, ProcessedWay};
 use crate::world_editor::WorldEditor;
 use std::collections::HashMap;
@@ -20,6 +21,7 @@ pub fn generate_highways(
     args: &Args,
     highway_connectivity: &HighwayConnectivityMap,
     flood_fill_cache: &FloodFillCache,
+    _context: &GenerationContext,
 ) {
     generate_highways_internal(
         editor,
@@ -27,6 +29,7 @@ pub fn generate_highways(
         args,
         highway_connectivity,
         flood_fill_cache,
+        _context,
     );
 }
 
@@ -77,6 +80,7 @@ fn generate_highways_internal(
     args: &Args,
     highway_connectivity: &HashMap<(i32, i32), Vec<i32>>, // Maps node coordinates to list of layers that connect to this node
     flood_fill_cache: &FloodFillCache,
+    _context: &GenerationContext,
 ) {
     if let Some(highway_type) = element.tags().get("highway") {
         if highway_type == "street_lamp" {
@@ -808,7 +812,11 @@ fn add_highway_support_pillar_absolute(
 }
 
 /// Generates a siding using stone brick slabs
-pub fn generate_siding(editor: &mut WorldEditor, element: &ProcessedWay) {
+pub fn generate_siding(
+    editor: &mut WorldEditor,
+    element: &ProcessedWay,
+    _context: &GenerationContext,
+) {
     let mut previous_node: Option<XZPoint> = None;
     let siding_block: Block = STONE_BRICK_SLAB;
 
@@ -838,7 +846,12 @@ pub fn generate_siding(editor: &mut WorldEditor, element: &ProcessedWay) {
 }
 
 /// Generates an aeroway
-pub fn generate_aeroway(editor: &mut WorldEditor, way: &ProcessedWay, args: &Args) {
+pub fn generate_aeroway(
+    editor: &mut WorldEditor,
+    way: &ProcessedWay,
+    args: &Args,
+    _context: &GenerationContext,
+) {
     let mut previous_node: Option<(i32, i32)> = None;
     let surface_block = LIGHT_GRAY_CONCRETE;
 

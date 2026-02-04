@@ -5,6 +5,7 @@ use crate::coordinate_system::cartesian::XZPoint;
 use crate::deterministic_rng::element_rng;
 use crate::floodfill::flood_fill_area; // Needed for inline amenity flood fills
 use crate::floodfill_cache::FloodFillCache;
+use crate::object_context::GenerationContext;
 use crate::osm_parser::ProcessedElement;
 use crate::world_editor::WorldEditor;
 use rand::Rng;
@@ -14,6 +15,7 @@ pub fn generate_amenities(
     element: &ProcessedElement,
     args: &Args,
     flood_fill_cache: &FloodFillCache,
+    _context: &GenerationContext,
 ) {
     // Skip if 'layer' or 'level' is negative in the tags
     if let Some(layer) = element.tags().get("layer") {

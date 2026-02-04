@@ -4,6 +4,7 @@ use crate::bresenham::bresenham_line;
 use crate::deterministic_rng::element_rng;
 use crate::element_processing::tree::Tree;
 use crate::floodfill_cache::{BuildingFootprintBitmap, FloodFillCache};
+use crate::object_context::{ContextIndex, GenerationContext};
 use crate::osm_parser::{ProcessedElement, ProcessedMemberRole, ProcessedRelation, ProcessedWay};
 use crate::world_editor::WorldEditor;
 use rand::Rng;
@@ -14,6 +15,7 @@ pub fn generate_natural(
     args: &Args,
     flood_fill_cache: &FloodFillCache,
     building_footprints: &BuildingFootprintBitmap,
+    _context: &GenerationContext,
 ) {
     if let Some(natural_type) = element.tags().get("natural") {
         if natural_type == "tree" {
@@ -458,17 +460,22 @@ pub fn generate_natural_from_relation(
     args: &Args,
     flood_fill_cache: &FloodFillCache,
     building_footprints: &BuildingFootprintBitmap,
+    _context: &GenerationContext,
+    context_index: &ContextIndex,
 ) {
     if rel.tags.contains_key("natural") {
         // Generate individual ways with their original tags
         for member in &rel.members {
             if member.role == ProcessedMemberRole::Outer {
+                let member_element = ProcessedElement::Way((*member.way).clone());
+                let member_context = context_index.context_for_element(&member_element);
                 generate_natural(
                     editor,
-                    &ProcessedElement::Way((*member.way).clone()),
+                    &member_element,
                     args,
                     flood_fill_cache,
                     building_footprints,
+                    &member_context,
                 );
             }
         }
@@ -491,12 +498,15 @@ pub fn generate_natural_from_relation(
             };
 
             // Generate natural area from combined way
+            let combined_element = ProcessedElement::Way(combined_way);
+            let combined_context = context_index.context_for_element(&combined_element);
             generate_natural(
                 editor,
-                &ProcessedElement::Way(combined_way),
+                &combined_element,
                 args,
                 flood_fill_cache,
                 building_footprints,
+                &combined_context,
             );
         }
     }

@@ -6,6 +6,7 @@ use crate::coordinate_system::cartesian::XZPoint;
 use crate::deterministic_rng::element_rng;
 use crate::element_processing::subprocessor::buildings_interior::generate_building_interior;
 use crate::floodfill_cache::FloodFillCache;
+use crate::object_context::{ContextIndex, GenerationContext};
 use crate::osm_parser::{ProcessedMemberRole, ProcessedRelation, ProcessedWay};
 use crate::world_editor::WorldEditor;
 use rand::Rng;
@@ -30,6 +31,7 @@ pub fn generate_buildings(
     args: &Args,
     relation_levels: Option<i32>,
     flood_fill_cache: &FloodFillCache,
+    _context: &GenerationContext,
 ) {
     // Get min_level first so we can use it both for start_level and building height calculations
     let min_level = if let Some(min_level_str) = element.tags.get("building:min_level") {
@@ -1487,6 +1489,8 @@ pub fn generate_building_from_relation(
     relation: &ProcessedRelation,
     args: &Args,
     flood_fill_cache: &FloodFillCache,
+    _context: &GenerationContext,
+    context_index: &ContextIndex,
 ) {
     // Extract levels from relation tags
     let relation_levels = relation
@@ -1498,12 +1502,14 @@ pub fn generate_building_from_relation(
     // Process the outer way to create the building walls
     for member in &relation.members {
         if member.role == ProcessedMemberRole::Outer {
+            let member_context = context_index.context_for_way(&member.way);
             generate_buildings(
                 editor,
                 &member.way,
                 args,
                 Some(relation_levels),
                 flood_fill_cache,
+                &member_context,
             );
         }
     }
