@@ -28,15 +28,39 @@ use crate::ground::Ground;
 use crate::progress::emit_gui_progress_update;
 use colored::Colorize;
 use fastnbt::{IntArray, Value};
-use serde::Serialize;
+use rand::Rng;
+use serde::{Deserialize, Serialize};
 use std::collections::{hash_map::Entry, HashMap};
+use std::fs;
 use std::fs::File;
 use std::io::Write;
+use std::path::Path;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 #[cfg(feature = "gui")]
 use crate::telemetry::{send_log, LogLevel};
+
+const ABANDONED_INTERIOR_BOOKSHELF_MARKER: &str = "ABANDONED_INTERIOR";
+const BOOKSHELF_LOOT_APPLIED_FLAG_KEY: &str = "__arnis_bookshelf_loot_applied";
+const ABANDONED_BOOKSHELF_LOOT_PRIMARY_PATH: &str =
+    "assets/structures/abandoned_interior_chiseled_bookshelf_loot.json";
+const ABANDONED_BOOKSHELF_LOOT_EMBEDDED_BYTES: &[u8] =
+    include_bytes!("../../assets/structures/abandoned_interior_chiseled_bookshelf_loot.json");
+
+static ABANDONED_BOOKSHELF_LOOT_TABLE: OnceLock<Vec<WeightedBookshelfLootEntry>> = OnceLock::new();
+
+#[derive(Clone, Debug)]
+struct WeightedBookshelfLootEntry {
+    item: Option<HashMap<String, Value>>,
+    weight: u32,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawWeightedBookshelfLootEntry {
+    item: Option<serde_json::Value>,
+    weight: u32,
+}
 
 /// World format to generate
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -375,6 +399,30 @@ impl<'a> WorldEditor<'a> {
         }
     }
 
+    /// Normalizes chiseled bookshelf data before placement.
+    ///
+    /// If the block entity has the `ABANDONED_INTERIOR` marker, empty slots are
+    /// filled from the embedded weighted loot table.
+    pub fn prepare_block_for_placement(
+        &self,
+        block: Block,
+        block_props: &mut Option<Value>,
+        block_entity: &mut Option<HashMap<String, Value>>,
+    ) {
+        if !is_chiseled_bookshelf(block) {
+            return;
+        }
+
+        let Some(nbt) = block_entity.as_mut() else {
+            return;
+        };
+
+        if let Some(occupied) = normalize_and_fill_chiseled_bookshelf_items(nbt) {
+            apply_bookshelf_slot_properties(block_props, occupied);
+            nbt.insert(BOOKSHELF_LOOT_APPLIED_FLAG_KEY.to_string(), Value::Byte(1));
+        }
+    }
+
     /// Adds a raw block entity NBT at the given absolute coordinates.
     pub fn add_block_entity_absolute(
         &mut self,
@@ -389,6 +437,22 @@ impl<'a> WorldEditor<'a> {
 
         if !nbt.contains_key("id") {
             return;
+        }
+
+        let loot_was_applied_before_placement =
+            nbt.remove(BOOKSHELF_LOOT_APPLIED_FLAG_KEY).is_some();
+
+        let mut updated_bookshelf_state: Option<(Block, Value)> = None;
+        if let Some(existing_block) = self.world.get_block(x, absolute_y, z) {
+            if is_chiseled_bookshelf(existing_block) && !loot_was_applied_before_placement {
+                if let Some(occupied) = normalize_and_fill_chiseled_bookshelf_items(&mut nbt) {
+                    let mut props = existing_block.properties();
+                    apply_bookshelf_slot_properties(&mut props, occupied);
+                    if let Some(props) = props {
+                        updated_bookshelf_state = Some((existing_block, props));
+                    }
+                }
+            }
         }
 
         nbt.insert("x".to_string(), Value::Int(x));
@@ -415,6 +479,15 @@ impl<'a> WorldEditor<'a> {
             Entry::Vacant(entry) => {
                 entry.insert(Value::List(vec![Value::Compound(nbt)]));
             }
+        }
+
+        if let Some((block, props)) = updated_bookshelf_state {
+            self.world.set_block_with_properties(
+                x,
+                absolute_y,
+                z,
+                BlockWithProperties::new(block, Some(props)),
+            );
         }
     }
 
@@ -904,6 +977,370 @@ impl<'a> WorldEditor<'a> {
             .map_err(|e| format!("Failed to write metadata to file: {}", e))?;
 
         Ok(())
+    }
+}
+
+fn is_chiseled_bookshelf(block: Block) -> bool {
+    block.name() == "chiseled_bookshelf"
+}
+
+fn normalize_and_fill_chiseled_bookshelf_items(
+    nbt: &mut HashMap<String, Value>,
+) -> Option<[bool; 6]> {
+    let apply_loot = has_abandoned_bookshelf_marker(nbt);
+    let items = ensure_items_list(nbt);
+    let mut occupied = [false; 6];
+
+    for item in items.iter_mut() {
+        let Value::Compound(item_map) = item else {
+            continue;
+        };
+
+        if let Some(slot) = item_map.get("Slot").and_then(value_to_i32) {
+            if (0..6).contains(&slot) {
+                occupied[slot as usize] = true;
+            }
+        }
+
+        normalize_item_stack(item_map);
+    }
+
+    if apply_loot {
+        fill_empty_bookshelf_slots(items, &mut occupied);
+    }
+
+    Some(occupied)
+}
+
+fn ensure_items_list(nbt: &mut HashMap<String, Value>) -> &mut Vec<Value> {
+    let has_list = matches!(nbt.get("Items"), Some(Value::List(_)));
+    if !has_list {
+        nbt.insert("Items".to_string(), Value::List(Vec::new()));
+    }
+
+    match nbt.get_mut("Items") {
+        Some(Value::List(items)) => items,
+        _ => unreachable!("Items was forced to be a list"),
+    }
+}
+
+fn has_abandoned_bookshelf_marker(nbt: &HashMap<String, Value>) -> bool {
+    let Some(Value::Compound(components)) = nbt.get("components") else {
+        return false;
+    };
+
+    let Some(Value::String(name)) = components.get("minecraft:custom_name") else {
+        return false;
+    };
+
+    name.trim_matches('"') == ABANDONED_INTERIOR_BOOKSHELF_MARKER
+}
+
+fn fill_empty_bookshelf_slots(items: &mut Vec<Value>, occupied: &mut [bool; 6]) {
+    let loot_table = load_abandoned_bookshelf_loot_table();
+    if loot_table.is_empty() {
+        return;
+    }
+
+    let mut rng = rand::thread_rng();
+
+    for (slot, is_occupied) in occupied.iter_mut().enumerate() {
+        if *is_occupied {
+            continue;
+        }
+
+        let Some(choice) = choose_weighted_loot_entry(loot_table, &mut rng) else {
+            continue;
+        };
+
+        let Some(mut item) = choice.item.clone() else {
+            continue;
+        };
+
+        item.insert("Slot".to_string(), Value::Byte(slot as i8));
+        normalize_item_stack(&mut item);
+        items.push(Value::Compound(item));
+        *is_occupied = true;
+    }
+}
+
+fn choose_weighted_loot_entry<'a>(
+    entries: &'a [WeightedBookshelfLootEntry],
+    rng: &mut impl Rng,
+) -> Option<&'a WeightedBookshelfLootEntry> {
+    let total_weight: u64 = entries.iter().map(|entry| u64::from(entry.weight)).sum();
+
+    if total_weight == 0 {
+        return None;
+    }
+
+    let mut draw = rng.gen_range(0..total_weight);
+    for entry in entries {
+        let weight = u64::from(entry.weight);
+        if draw < weight {
+            return Some(entry);
+        }
+        draw -= weight;
+    }
+
+    entries.last()
+}
+
+fn load_abandoned_bookshelf_loot_table() -> &'static [WeightedBookshelfLootEntry] {
+    ABANDONED_BOOKSHELF_LOOT_TABLE
+        .get_or_init(load_abandoned_bookshelf_loot_table_impl)
+        .as_slice()
+}
+
+fn load_abandoned_bookshelf_loot_table_impl() -> Vec<WeightedBookshelfLootEntry> {
+    let bytes = read_bookshelf_loot_file_bytes()
+        .unwrap_or_else(|| ABANDONED_BOOKSHELF_LOOT_EMBEDDED_BYTES.to_vec());
+
+    parse_weighted_bookshelf_loot_entries(&bytes).unwrap_or_else(|err| {
+        eprintln!(
+            "Failed to parse abandoned bookshelf loot table JSON; using empty loot table: {}",
+            err
+        );
+        Vec::new()
+    })
+}
+
+fn read_bookshelf_loot_file_bytes() -> Option<Vec<u8>> {
+    let resolved = resolve_asset_path(ABANDONED_BOOKSHELF_LOOT_PRIMARY_PATH);
+    if resolved.exists() {
+        match fs::read(&resolved) {
+            Ok(bytes) => return Some(bytes),
+            Err(err) => {
+                eprintln!(
+                    "Failed to read bookshelf loot table {}: {}",
+                    resolved.display(),
+                    err
+                );
+            }
+        }
+    }
+
+    None
+}
+
+fn resolve_asset_path(path: &str) -> PathBuf {
+    let path = PathBuf::from(path);
+    if path.is_absolute() {
+        return path;
+    }
+
+    if path.exists() {
+        return path;
+    }
+
+    let manifest_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(&path);
+    if manifest_path.exists() {
+        return manifest_path;
+    }
+
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let exe_relative = exe_dir.join(&path);
+            if exe_relative.exists() {
+                return exe_relative;
+            }
+        }
+    }
+
+    path
+}
+
+fn parse_weighted_bookshelf_loot_entries(
+    bytes: &[u8],
+) -> Result<Vec<WeightedBookshelfLootEntry>, serde_json::Error> {
+    let raw_entries: Vec<RawWeightedBookshelfLootEntry> = serde_json::from_slice(bytes)?;
+    let mut parsed = Vec::new();
+
+    for raw in raw_entries {
+        if raw.weight == 0 {
+            continue;
+        }
+
+        let item = match raw.item {
+            Some(serde_json::Value::Object(map)) => Some(json_object_to_nbt_compound(map)),
+            Some(serde_json::Value::Null) | None => None,
+            _ => None,
+        };
+
+        parsed.push(WeightedBookshelfLootEntry {
+            item,
+            weight: raw.weight,
+        });
+    }
+
+    Ok(parsed)
+}
+
+fn json_object_to_nbt_compound(
+    map: serde_json::Map<String, serde_json::Value>,
+) -> HashMap<String, Value> {
+    map.into_iter()
+        .map(|(key, value)| (key, json_value_to_nbt_value(value)))
+        .collect()
+}
+
+fn json_value_to_nbt_value(value: serde_json::Value) -> Value {
+    match value {
+        serde_json::Value::Null => Value::String(String::new()),
+        serde_json::Value::Bool(v) => Value::Byte(if v { 1 } else { 0 }),
+        serde_json::Value::Number(v) => {
+            if let Some(number) = v.as_i64() {
+                if let Ok(number) = i32::try_from(number) {
+                    Value::Int(number)
+                } else {
+                    Value::Long(number)
+                }
+            } else if let Some(number) = v.as_u64() {
+                if let Ok(number) = i32::try_from(number) {
+                    Value::Int(number)
+                } else if let Ok(number) = i64::try_from(number) {
+                    Value::Long(number)
+                } else {
+                    Value::Double(number as f64)
+                }
+            } else if let Some(number) = v.as_f64() {
+                Value::Double(number)
+            } else {
+                Value::Int(0)
+            }
+        }
+        serde_json::Value::String(v) => Value::String(v),
+        serde_json::Value::Array(values) => {
+            Value::List(values.into_iter().map(json_value_to_nbt_value).collect())
+        }
+        serde_json::Value::Object(map) => Value::Compound(json_object_to_nbt_compound(map)),
+    }
+}
+
+fn normalize_item_stack(item: &mut HashMap<String, Value>) {
+    let count = item
+        .get("count")
+        .and_then(value_to_i32)
+        .or_else(|| item.get("Count").and_then(value_to_i32))
+        .unwrap_or(1)
+        .max(1);
+
+    let count_byte = count.clamp(1, i8::MAX as i32) as i8;
+
+    item.insert("count".to_string(), Value::Int(count));
+    item.insert("Count".to_string(), Value::Byte(count_byte));
+
+    if let Some(slot) = item.get("Slot").and_then(value_to_i32) {
+        item.insert("Slot".to_string(), Value::Byte(slot.clamp(0, 127) as i8));
+    }
+
+    let Some(Value::String(id)) = item.get("id") else {
+        return;
+    };
+
+    match id.as_str() {
+        "minecraft:enchanted_book" => ensure_legacy_enchanted_book(item),
+        "minecraft:writable_book" => ensure_legacy_writable_book(item),
+        _ => {}
+    }
+}
+
+fn ensure_legacy_enchanted_book(item: &mut HashMap<String, Value>) {
+    let Some(Value::Compound(components)) = item.get("components") else {
+        return;
+    };
+
+    let stored = match components.get("minecraft:stored_enchantments") {
+        Some(Value::Compound(map)) => {
+            let mut list = Vec::new();
+            for (id, lvl) in map {
+                let Some(level) = value_to_i32(lvl) else {
+                    continue;
+                };
+                let mut entry = HashMap::new();
+                entry.insert("id".to_string(), Value::String(id.clone()));
+                entry.insert(
+                    "lvl".to_string(),
+                    Value::Short(level.clamp(0, i16::MAX as i32) as i16),
+                );
+                list.push(Value::Compound(entry));
+            }
+            list
+        }
+        Some(Value::List(list)) => {
+            let mut entries = Vec::new();
+            for value in list {
+                if let Value::Compound(map) = value {
+                    let Some(Value::String(id)) = map.get("id") else {
+                        continue;
+                    };
+                    let Some(level) = map.get("lvl").and_then(value_to_i32) else {
+                        continue;
+                    };
+                    let mut entry = HashMap::new();
+                    entry.insert("id".to_string(), Value::String(id.clone()));
+                    entry.insert(
+                        "lvl".to_string(),
+                        Value::Short(level.clamp(0, i16::MAX as i32) as i16),
+                    );
+                    entries.push(Value::Compound(entry));
+                }
+            }
+            entries
+        }
+        _ => Vec::new(),
+    };
+
+    if stored.is_empty() {
+        return;
+    }
+
+    let tag_entry = item
+        .entry("tag".to_string())
+        .or_insert_with(|| Value::Compound(HashMap::new()));
+
+    if let Value::Compound(tag) = tag_entry {
+        tag.entry("StoredEnchantments".to_string())
+            .or_insert(Value::List(stored));
+    }
+}
+
+fn ensure_legacy_writable_book(item: &mut HashMap<String, Value>) {
+    let tag_entry = item
+        .entry("tag".to_string())
+        .or_insert_with(|| Value::Compound(HashMap::new()));
+
+    if let Value::Compound(tag) = tag_entry {
+        tag.entry("pages".to_string())
+            .or_insert_with(|| Value::List(vec![Value::String(String::new())]));
+    }
+}
+
+fn apply_bookshelf_slot_properties(props: &mut Option<Value>, occupied: [bool; 6]) {
+    let mut map = match props.take() {
+        Some(Value::Compound(map)) => map,
+        _ => HashMap::new(),
+    };
+
+    for (idx, filled) in occupied.iter().enumerate() {
+        map.insert(
+            format!("slot_{}_occupied", idx),
+            Value::String(if *filled { "true" } else { "false" }.to_string()),
+        );
+    }
+
+    *props = Some(Value::Compound(map));
+}
+
+fn value_to_i32(value: &Value) -> Option<i32> {
+    match value {
+        Value::Byte(v) => Some(i32::from(*v)),
+        Value::Short(v) => Some(i32::from(*v)),
+        Value::Int(v) => Some(*v),
+        Value::Long(v) => i32::try_from(*v).ok(),
+        Value::Float(v) => Some(*v as i32),
+        Value::Double(v) => Some(*v as i32),
+        _ => None,
     }
 }
 

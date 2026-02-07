@@ -4,7 +4,7 @@ use crate::block_definitions::{
 use crate::structure_template::StructureTemplate;
 use crate::world_editor::WorldEditor;
 use fastnbt::Value;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::OnceLock;
 
 const INTERIOR_Y_OFFSET: i32 = 1;
@@ -15,35 +15,37 @@ struct TemplateConfig {
     embedded: &'static [u8],
 }
 
-const INTERIOR_1_BYTES: &[u8] = include_bytes!("../../../assets/structures/interior_1.nbt");
-const INTERIOR_2_BYTES: &[u8] = include_bytes!("../../../assets/structures/interior_2.nbt");
-const ABANDONED_INTERIOR_1_BYTES: &[u8] =
-    include_bytes!("../../../assets/structures/abandoned_interior_1.nbt");
-const ABANDONED_INTERIOR_2_BYTES: &[u8] =
-    include_bytes!("../../../assets/structures/abandoned_interior_2.nbt");
+const GENERIC_INTERIOR_GROUND_FLOOR_BYTES: &[u8] =
+    include_bytes!("../../../assets/structures/generic_interior_ground_floor.nbt");
+const GENERIC_INTERIOR_UPPER_FLOOR_BYTES: &[u8] =
+    include_bytes!("../../../assets/structures/generic_interior_upper_floor.nbt");
+const ABANDONED_INTERIOR_GROUND_FLOOR_BYTES: &[u8] =
+    include_bytes!("../../../assets/structures/abandoned_interior_ground_floor.nbt");
+const ABANDONED_INTERIOR_UPPER_FLOOR_BYTES: &[u8] =
+    include_bytes!("../../../assets/structures/abandoned_interior_upper_floor.nbt");
 
-const INTERIOR_1_CONFIG: TemplateConfig = TemplateConfig {
-    path: "assets/structures/interior_1.nbt",
+const GENERIC_INTERIOR_GROUND_FLOOR_CONFIG: TemplateConfig = TemplateConfig {
+    path: "assets/structures/generic_interior_ground_floor.nbt",
     generic_wall_block: "minecraft:bricks",
-    embedded: INTERIOR_1_BYTES,
+    embedded: GENERIC_INTERIOR_GROUND_FLOOR_BYTES,
 };
 
-const INTERIOR_2_CONFIG: TemplateConfig = TemplateConfig {
-    path: "assets/structures/interior_2.nbt",
+const GENERIC_INTERIOR_UPPER_FLOOR_CONFIG: TemplateConfig = TemplateConfig {
+    path: "assets/structures/generic_interior_upper_floor.nbt",
     generic_wall_block: "minecraft:bricks",
-    embedded: INTERIOR_2_BYTES,
+    embedded: GENERIC_INTERIOR_UPPER_FLOOR_BYTES,
 };
 
-const ABANDONED_INTERIOR_1_CONFIG: TemplateConfig = TemplateConfig {
-    path: "assets/structures/abandoned_interior_1.nbt",
+const ABANDONED_INTERIOR_GROUND_FLOOR_CONFIG: TemplateConfig = TemplateConfig {
+    path: "assets/structures/abandoned_interior_ground_floor.nbt",
     generic_wall_block: "minecraft:bricks",
-    embedded: ABANDONED_INTERIOR_1_BYTES,
+    embedded: ABANDONED_INTERIOR_GROUND_FLOOR_BYTES,
 };
 
-const ABANDONED_INTERIOR_2_CONFIG: TemplateConfig = TemplateConfig {
-    path: "assets/structures/abandoned_interior_2.nbt",
+const ABANDONED_INTERIOR_UPPER_FLOOR_CONFIG: TemplateConfig = TemplateConfig {
+    path: "assets/structures/abandoned_interior_upper_floor.nbt",
     generic_wall_block: "minecraft:bricks",
-    embedded: ABANDONED_INTERIOR_2_BYTES,
+    embedded: ABANDONED_INTERIOR_UPPER_FLOOR_BYTES,
 };
 
 enum PaletteMapping {
@@ -58,10 +60,13 @@ struct InteriorTemplate {
     door_lower_states: Vec<bool>,
 }
 
-static INTERIOR_1_TEMPLATE: OnceLock<Option<InteriorTemplate>> = OnceLock::new();
-static INTERIOR_2_TEMPLATE: OnceLock<Option<InteriorTemplate>> = OnceLock::new();
-static ABANDONED_INTERIOR_1_TEMPLATE: OnceLock<Option<InteriorTemplate>> = OnceLock::new();
-static ABANDONED_INTERIOR_2_TEMPLATE: OnceLock<Option<InteriorTemplate>> = OnceLock::new();
+static GENERIC_INTERIOR_GROUND_FLOOR_TEMPLATE: OnceLock<Option<InteriorTemplate>> =
+    OnceLock::new();
+static GENERIC_INTERIOR_UPPER_FLOOR_TEMPLATE: OnceLock<Option<InteriorTemplate>> = OnceLock::new();
+static ABANDONED_INTERIOR_GROUND_FLOOR_TEMPLATE: OnceLock<Option<InteriorTemplate>> =
+    OnceLock::new();
+static ABANDONED_INTERIOR_UPPER_FLOOR_TEMPLATE: OnceLock<Option<InteriorTemplate>> =
+    OnceLock::new();
 
 fn get_template(
     cache: &'static OnceLock<Option<InteriorTemplate>>,
@@ -152,6 +157,7 @@ fn is_lower_door(name: &str, properties: &Option<Value>) -> bool {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn place_template_for_floor(
     editor: &mut WorldEditor,
     template: &InteriorTemplate,
@@ -239,14 +245,11 @@ fn place_template_for_floor(
                     PaletteMapping::Block(block, props) => {
                         let mut block_props = props.clone();
                         let mut block_entity = template_block.nbt.clone();
-
-                        if is_chiseled_bookshelf(*block) {
-                            if let Some(ref mut nbt) = block_entity {
-                                if let Some(occupied) = normalize_chiseled_bookshelf_nbt(nbt) {
-                                    apply_bookshelf_slot_properties(&mut block_props, occupied);
-                                }
-                            }
-                        }
+                        editor.prepare_block_for_placement(
+                            *block,
+                            &mut block_props,
+                            &mut block_entity,
+                        );
 
                         if let Some(props) = &block_props {
                             editor.set_block_with_properties_absolute(
@@ -316,161 +319,6 @@ fn place_template_for_floor(
     }
 }
 
-fn is_chiseled_bookshelf(block: Block) -> bool {
-    block.name() == "chiseled_bookshelf"
-}
-
-fn normalize_chiseled_bookshelf_nbt(nbt: &mut HashMap<String, Value>) -> Option<[bool; 6]> {
-    let Some(Value::List(items)) = nbt.get_mut("Items") else {
-        return None;
-    };
-
-    let mut occupied = [false; 6];
-
-    for item in items.iter_mut() {
-        let Value::Compound(item_map) = item else {
-            continue;
-        };
-
-        if let Some(slot) = item_map.get("Slot").and_then(value_to_i32) {
-            if (0..6).contains(&slot) {
-                occupied[slot as usize] = true;
-            }
-        }
-
-        normalize_item_stack(item_map);
-    }
-
-    Some(occupied)
-}
-
-fn normalize_item_stack(item: &mut HashMap<String, Value>) {
-    let count = item
-        .get("count")
-        .and_then(value_to_i32)
-        .or_else(|| item.get("Count").and_then(value_to_i32))
-        .unwrap_or(1)
-        .max(1);
-
-    let count_byte = count.clamp(1, i8::MAX as i32) as i8;
-
-    item.insert("count".to_string(), Value::Int(count));
-    item.insert("Count".to_string(), Value::Byte(count_byte));
-
-    if let Some(slot) = item.get("Slot").and_then(value_to_i32) {
-        item.insert("Slot".to_string(), Value::Byte(slot.clamp(0, 127) as i8));
-    }
-
-    let Some(Value::String(id)) = item.get("id") else {
-        return;
-    };
-
-    match id.as_str() {
-        "minecraft:enchanted_book" => ensure_legacy_enchanted_book(item),
-        "minecraft:writable_book" => ensure_legacy_writable_book(item),
-        _ => {}
-    }
-}
-
-fn ensure_legacy_enchanted_book(item: &mut HashMap<String, Value>) {
-    let Some(Value::Compound(components)) = item.get("components") else {
-        return;
-    };
-
-    let stored = match components.get("minecraft:stored_enchantments") {
-        Some(Value::Compound(map)) => {
-            let mut list = Vec::new();
-            for (id, lvl) in map {
-                let Some(level) = value_to_i32(lvl) else {
-                    continue;
-                };
-                let mut entry = HashMap::new();
-                entry.insert("id".to_string(), Value::String(id.clone()));
-                entry.insert(
-                    "lvl".to_string(),
-                    Value::Short(level.clamp(0, i16::MAX as i32) as i16),
-                );
-                list.push(Value::Compound(entry));
-            }
-            list
-        }
-        Some(Value::List(list)) => {
-            let mut entries = Vec::new();
-            for value in list {
-                if let Value::Compound(map) = value {
-                    let Some(Value::String(id)) = map.get("id") else {
-                        continue;
-                    };
-                    let Some(level) = map.get("lvl").and_then(value_to_i32) else {
-                        continue;
-                    };
-                    let mut entry = HashMap::new();
-                    entry.insert("id".to_string(), Value::String(id.clone()));
-                    entry.insert(
-                        "lvl".to_string(),
-                        Value::Short(level.clamp(0, i16::MAX as i32) as i16),
-                    );
-                    entries.push(Value::Compound(entry));
-                }
-            }
-            entries
-        }
-        _ => Vec::new(),
-    };
-
-    if stored.is_empty() {
-        return;
-    }
-
-    let tag_entry = item
-        .entry("tag".to_string())
-        .or_insert_with(|| Value::Compound(HashMap::new()));
-
-    if let Value::Compound(tag) = tag_entry {
-        tag.entry("StoredEnchantments".to_string())
-            .or_insert(Value::List(stored));
-    }
-}
-
-fn ensure_legacy_writable_book(item: &mut HashMap<String, Value>) {
-    let tag_entry = item
-        .entry("tag".to_string())
-        .or_insert_with(|| Value::Compound(HashMap::new()));
-
-    if let Value::Compound(tag) = tag_entry {
-        tag.entry("pages".to_string())
-            .or_insert_with(|| Value::List(vec![Value::String(String::new())]));
-    }
-}
-
-fn apply_bookshelf_slot_properties(props: &mut Option<Value>, occupied: [bool; 6]) {
-    let mut map = match props.take() {
-        Some(Value::Compound(map)) => map,
-        _ => HashMap::new(),
-    };
-
-    for (idx, filled) in occupied.iter().enumerate() {
-        map.insert(
-            format!("slot_{}_occupied", idx),
-            Value::String(if *filled { "true" } else { "false" }.to_string()),
-        );
-    }
-
-    *props = Some(Value::Compound(map));
-}
-
-fn value_to_i32(value: &Value) -> Option<i32> {
-    match value {
-        Value::Byte(v) => Some(i32::from(*v)),
-        Value::Short(v) => Some(i32::from(*v)),
-        Value::Int(v) => Some(*v),
-        Value::Long(v) => i32::try_from(*v).ok(),
-        Value::Float(v) => Some(*v as i32),
-        Value::Double(v) => Some(*v as i32),
-        _ => None,
-    }
-}
-
 /// Generates interior layouts inside buildings at each floor level.
 #[allow(clippy::too_many_arguments)]
 pub fn generate_building_interior(
@@ -525,14 +373,26 @@ pub fn generate_building_interior(
 
         let template = if is_abandoned_building {
             if floor_index == 0 {
-                get_template(&ABANDONED_INTERIOR_1_TEMPLATE, &ABANDONED_INTERIOR_1_CONFIG)
+                get_template(
+                    &ABANDONED_INTERIOR_GROUND_FLOOR_TEMPLATE,
+                    &ABANDONED_INTERIOR_GROUND_FLOOR_CONFIG,
+                )
             } else {
-                get_template(&ABANDONED_INTERIOR_2_TEMPLATE, &ABANDONED_INTERIOR_2_CONFIG)
+                get_template(
+                    &ABANDONED_INTERIOR_UPPER_FLOOR_TEMPLATE,
+                    &ABANDONED_INTERIOR_UPPER_FLOOR_CONFIG,
+                )
             }
         } else if floor_index == 0 {
-            get_template(&INTERIOR_1_TEMPLATE, &INTERIOR_1_CONFIG)
+            get_template(
+                &GENERIC_INTERIOR_GROUND_FLOOR_TEMPLATE,
+                &GENERIC_INTERIOR_GROUND_FLOOR_CONFIG,
+            )
         } else {
-            get_template(&INTERIOR_2_TEMPLATE, &INTERIOR_2_CONFIG)
+            get_template(
+                &GENERIC_INTERIOR_UPPER_FLOOR_TEMPLATE,
+                &GENERIC_INTERIOR_UPPER_FLOOR_CONFIG,
+            )
         };
 
         let Some(template) = template else {
