@@ -317,6 +317,107 @@ impl<'a> WorldEditor<'a> {
         }
     }
 
+    /// Adds a raw entity NBT at the given absolute coordinates.
+    pub fn add_entity_nbt_absolute(
+        &mut self,
+        mut nbt: HashMap<String, Value>,
+        world_pos: (f64, f64, f64),
+        block_pos: (i32, i32, i32),
+    ) {
+        if !self
+            .xzbbox
+            .contains(&XZPoint::new(block_pos.0, block_pos.2))
+        {
+            return;
+        }
+
+        let id = match nbt.get("id") {
+            Some(Value::String(id)) => id.clone(),
+            _ => return,
+        };
+
+        nbt.insert(
+            "Pos".to_string(),
+            Value::List(vec![
+                Value::Double(world_pos.0),
+                Value::Double(world_pos.1),
+                Value::Double(world_pos.2),
+            ]),
+        );
+
+        nbt.insert(
+            "UUID".to_string(),
+            Value::IntArray(build_deterministic_uuid(
+                &id,
+                block_pos.0,
+                block_pos.1,
+                block_pos.2,
+            )),
+        );
+
+        let chunk_x: i32 = block_pos.0 >> 4;
+        let chunk_z: i32 = block_pos.2 >> 4;
+        let region_x: i32 = chunk_x >> 5;
+        let region_z: i32 = chunk_z >> 5;
+
+        let region = self.world.get_or_create_region(region_x, region_z);
+        let chunk = region.get_or_create_chunk(chunk_x & 31, chunk_z & 31);
+
+        match chunk.other.entry("entities".to_string()) {
+            Entry::Occupied(mut entry) => {
+                if let Value::List(list) = entry.get_mut() {
+                    list.push(Value::Compound(nbt));
+                }
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(Value::List(vec![Value::Compound(nbt)]));
+            }
+        }
+    }
+
+    /// Adds a raw block entity NBT at the given absolute coordinates.
+    pub fn add_block_entity_absolute(
+        &mut self,
+        x: i32,
+        absolute_y: i32,
+        z: i32,
+        mut nbt: HashMap<String, Value>,
+    ) {
+        if !self.xzbbox.contains(&XZPoint::new(x, z)) {
+            return;
+        }
+
+        if !nbt.contains_key("id") {
+            return;
+        }
+
+        nbt.insert("x".to_string(), Value::Int(x));
+        nbt.insert("y".to_string(), Value::Int(absolute_y));
+        nbt.insert("z".to_string(), Value::Int(z));
+
+        nbt.entry("keepPacked".to_string())
+            .or_insert(Value::Byte(0));
+
+        let chunk_x: i32 = x >> 4;
+        let chunk_z: i32 = z >> 4;
+        let region_x: i32 = chunk_x >> 5;
+        let region_z: i32 = chunk_z >> 5;
+
+        let region = self.world.get_or_create_region(region_x, region_z);
+        let chunk = region.get_or_create_chunk(chunk_x & 31, chunk_z & 31);
+
+        match chunk.other.entry("block_entities".to_string()) {
+            Entry::Occupied(mut entry) => {
+                if let Value::List(list) = entry.get_mut() {
+                    list.push(Value::Compound(nbt));
+                }
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(Value::List(vec![Value::Compound(nbt)]));
+            }
+        }
+    }
+
     /// Places a chest with the provided items at the given coordinates (ground-relative Y).
     #[allow(dead_code)]
     pub fn set_chest_with_items(

@@ -1,0 +1,9 @@
+[
+    {"item": null, "weight": 10},
+    {"item": {"components": {"minecraft:stored_enchantments": {"minecraft:aqua_affinity": 1}}, "id": "minecraft:enchanted_book"}, "weight": 1},
+    {"item": {"components": {"minecraft:stored_enchantments": {"minecraft:sharpness": 1}}, "id": "minecraft:enchanted_book"}, "weight": 1},
+    {"item": {"components": {"minecraft:stored_enchantments": {"minecraft:efficiency": 1}}, "id": "minecraft:enchanted_book"}, "weight": 1},
+    {"item": {"components": {"minecraft:stored_enchantments": {"minecraft:unbreaking": 1}}, "id": "minecraft:enchanted_book"}, "weight": 1},
+    {"item": {"id": "minecraft:book"}, "weight": 25},
+    {"item": {"components": {"minecraft:writable_book_content": {"pages": [{"raw": "Dear Diary, \n\ni am so glad I wrote this book so that if there was ever a scavenger looking through an abandoned house, they could read my thoughts."}]}}, "id": "minecraft:writable_book"}, "weight": 1}
+]

@@ -1,280 +1,477 @@
-use crate::block_definitions::*;
+use crate::block_definitions::{
+    block_from_java_name, Block, BlockWithProperties, CHISELLED_BOOKSHELF,
+};
+use crate::structure_template::StructureTemplate;
 use crate::world_editor::WorldEditor;
-use std::collections::HashSet;
+use fastnbt::Value;
+use std::collections::{HashMap, HashSet};
+use std::sync::OnceLock;
 
-/// Interior layout for building ground floors (1st layer above floor)
-#[rustfmt::skip]
-const INTERIOR1_LAYER1: [[char; 23]; 23] = [
-    ['1', 'U', ' ', 'W', 'C', ' ', ' ', ' ', 'S', 'S', 'W', 'B', 'T', 'T', 'B', 'W', '7', '8', ' ', ' ', ' ', ' ', 'W',],
-    ['2', ' ', ' ', 'W', 'F', ' ', ' ', ' ', 'U', 'U', 'W', 'B', 'T', 'T', 'B', 'W', '7', '8', ' ', ' ', ' ', 'B', 'W',],
-    [' ', ' ', ' ', 'W', 'F', ' ', ' ', ' ', ' ', ' ', 'W', 'B', 'T', 'T', 'B', 'W', 'W', 'W', 'D', 'W', 'W', 'W', 'W',],
-    ['W', 'W', 'D', 'W', 'L', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'A', 'W', ' ', ' ', ' ', ' ', ' ', ' ', 'W',],
-    [' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'D', ' ', ' ', ' ', ' ', ' ', ' ', 'W',],
-    [' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W', 'W', 'W', 'W', 'D', 'W', 'W', 'W', 'W', 'D', 'W', 'W', ' ', ' ', 'D',],
-    [' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W', 'B', 'B', 'B', ' ', ' ', 'J', 'W', ' ', ' ', ' ', 'B', 'W', 'W', 'W',],
-    ['W', 'W', 'W', 'W', 'D', 'W', ' ', ' ', 'W', 'T', 'S', 'S', 'T', ' ', ' ', 'W', 'S', 'S', ' ', 'B', 'W', 'W', 'W',],
-    [' ', ' ', ' ', ' ', ' ', 'W', ' ', ' ', 'W', 'T', 'T', 'T', 'T', ' ', ' ', 'W', 'U', 'U', ' ', 'B', 'W', ' ', ' ',],
-    [' ', ' ', ' ', ' ', ' ', 'W', ' ', ' ', 'D', 'T', 'T', 'T', 'T', ' ', 'B', 'W', ' ', ' ', ' ', 'B', 'W', ' ', ' ',],
-    ['L', ' ', 'A', 'L', 'W', 'W', ' ', ' ', 'W', 'J', 'U', 'U', ' ', ' ', 'B', 'W', 'W', 'D', 'W', 'W', 'W', ' ', ' ',],
-    ['W', 'W', 'W', 'W', 'W', 'W', ' ', ' ', 'W', 'W', 'W', 'W', 'W', 'D', 'W', 'W', ' ', ' ', 'W', 'C', 'C', 'W', 'W',],
-    ['B', 'B', ' ', 'W', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'D', ' ', ' ', 'W', ' ', ' ', 'W', 'W',],
-    [' ', ' ', ' ', 'D', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'D', ' ', ' ', ' ', ' ', ' ', ' ', 'D',],
-    [' ', '6', ' ', 'W', ' ', ' ', 'W', 'W', 'W', 'W', 'W', 'D', 'W', 'W', 'D', 'W', ' ', ' ', ' ', ' ', ' ', ' ', 'W',],
-    ['U', '5', ' ', 'W', ' ', ' ', 'W', 'C', 'F', 'F', ' ', ' ', 'W', ' ', ' ', 'W', 'W', 'D', 'W', 'W', ' ', ' ', 'W',],
-    ['W', 'W', 'W', 'W', ' ', ' ', 'W', ' ', ' ', ' ', ' ', ' ', 'W', 'L', ' ', 'W', 'A', ' ', 'B', 'W', ' ', ' ', 'W',],
-    ['B', ' ', ' ', ' ', ' ', ' ', 'D', ' ', ' ', ' ', ' ', ' ', 'W', ' ', ' ', 'W', ' ', ' ', 'B', 'W', 'J', ' ', 'W',],
-    [' ', ' ', ' ', ' ', ' ', ' ', 'W', ' ', ' ', ' ', ' ', ' ', ' ', 'W', ' ', 'W', 'U', ' ', ' ', 'W', 'B', ' ', 'D',],
-    ['J', ' ', ' ', 'C', 'B', 'B', 'W', 'L', 'F', ' ', 'W', 'F', ' ', 'W', 'L', 'W', '7', '8', ' ', 'W', 'B', ' ', 'W',],
-    ['B', ' ', ' ', 'B', 'W', 'W', 'W', 'W', 'W', ' ', 'W', 'A', ' ', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'C', ' ', 'W',],
-    ['B', ' ', ' ', 'B', 'W', ' ', ' ', ' ', 'D', ' ', 'W', 'C', ' ', ' ', 'W', 'W', 'B', 'B', 'B', 'B', 'W', 'D', 'W',],
-    ['W', 'W', 'D', 'W', 'C', ' ', ' ', ' ', 'W', 'W', 'W', 'B', 'T', 'T', 'B', 'W', ' ', ' ', ' ', ' ', ' ', ' ', 'W',],
-];
+const INTERIOR_Y_OFFSET: i32 = 1;
 
-/// Interior layout for building ground floors (2nd layer above floor)
-#[rustfmt::skip]
-const INTERIOR1_LAYER2: [[char; 23]; 23] = [
-    [' ', 'P', ' ', 'W', ' ', ' ', ' ', ' ', ' ', ' ', 'W', 'B', ' ', ' ', 'B', 'W', ' ', ' ', ' ', ' ', ' ', ' ', 'W',],
-    [' ', ' ', ' ', 'W', ' ', ' ', ' ', ' ', 'P', 'P', 'W', 'B', ' ', ' ', 'B', 'W', ' ', ' ', ' ', ' ', ' ', 'B', 'W',],
-    [' ', ' ', ' ', 'W', ' ', ' ', ' ', ' ', ' ', ' ', 'W', 'B', ' ', ' ', 'B', 'W', 'W', 'W', 'D', 'W', 'W', 'W', 'W',],
-    ['W', 'W', 'D', 'W', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W', ' ', ' ', ' ', ' ', ' ', ' ', 'W',],
-    [' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'D', ' ', ' ', ' ', ' ', ' ', ' ', 'W',],
-    [' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W', 'W', 'W', 'W', 'D', 'W', 'W', 'W', 'W', 'D', 'W', 'W', ' ', ' ', 'D',],
-    [' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W', 'B', 'B', 'B', ' ', ' ', ' ', 'W', ' ', ' ', ' ', 'B', 'W', 'W', 'W',],
-    ['W', 'W', 'W', 'W', 'D', 'W', ' ', ' ', 'W', ' ', ' ', ' ', ' ', ' ', ' ', 'W', ' ', ' ', ' ', 'B', 'W', 'W', 'W',],
-    [' ', ' ', ' ', ' ', ' ', 'W', ' ', ' ', 'W', ' ', ' ', ' ', ' ', ' ', ' ', 'W', 'P', 'P', ' ', 'B', 'W', ' ', ' ',],
-    [' ', ' ', ' ', ' ', ' ', 'W', ' ', ' ', 'D', ' ', ' ', ' ', ' ', ' ', 'B', 'W', ' ', ' ', ' ', 'B', 'W', ' ', ' ',],
-    [' ', ' ', ' ', ' ', 'W', 'W', ' ', ' ', 'W', ' ', 'P', 'P', ' ', ' ', 'B', 'W', 'W', 'D', 'W', 'W', 'W', ' ', ' ',],
-    ['W', 'W', 'W', 'W', 'W', 'W', ' ', ' ', 'W', 'W', 'W', 'W', 'W', 'D', 'W', 'W', ' ', ' ', 'W', 'C', 'C', 'W', 'W',],
-    ['B', 'B', ' ', 'W', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'D', ' ', ' ', 'W', ' ', ' ', 'W', 'W',],
-    [' ', ' ', ' ', 'D', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'D', ' ', ' ', ' ', ' ', ' ', ' ', 'D',],
-    [' ', ' ', ' ', 'W', ' ', ' ', 'W', 'W', 'W', 'W', 'W', 'D', 'W', 'W', 'D', 'W', ' ', ' ', ' ', ' ', ' ', ' ', 'W',],
-    ['P', ' ', ' ', 'W', ' ', ' ', 'W', 'N', ' ', ' ', ' ', ' ', 'W', ' ', ' ', 'W', 'W', 'D', 'W', 'W', ' ', ' ', 'W',],
-    ['W', 'W', 'W', 'W', ' ', ' ', 'W', ' ', ' ', ' ', ' ', ' ', 'W', ' ', ' ', 'W', ' ', ' ', 'B', 'W', ' ', ' ', 'W',],
-    ['B', ' ', ' ', ' ', ' ', ' ', 'D', ' ', ' ', ' ', ' ', ' ', 'W', ' ', ' ', 'W', ' ', ' ', 'C', 'W', ' ', ' ', 'W',],
-    [' ', ' ', ' ', ' ', ' ', ' ', 'W', ' ', ' ', ' ', ' ', ' ', ' ', 'W', ' ', 'W', 'P', ' ', ' ', 'W', 'B', ' ', 'D',],
-    [' ', ' ', ' ', ' ', 'B', 'B', 'W', ' ', ' ', ' ', 'W', ' ', ' ', 'W', 'P', 'W', ' ', ' ', ' ', 'W', 'B', ' ', 'W',],
-    ['B', ' ', ' ', 'B', 'W', 'W', 'W', 'W', 'W', ' ', 'W', ' ', ' ', 'W', 'W', 'W', 'W', 'W', 'W', 'W', ' ', ' ', 'W',],
-    ['B', ' ', ' ', 'B', 'W', ' ', ' ', ' ', 'D', ' ', 'W', 'N', ' ', ' ', 'W', 'W', 'B', 'B', 'B', 'B', 'W', 'D', 'W',],
-    ['W', 'W', 'D', 'W', ' ', ' ', ' ', ' ', 'W', 'W', 'W', 'B', ' ', ' ', 'B', 'W', ' ', ' ', ' ', ' ', ' ', ' ', 'W',],
-];
+struct TemplateConfig {
+    path: &'static str,
+    generic_wall_block: &'static str,
+    embedded: &'static [u8],
+}
 
-/// Interior layout for building level floors (1st layer above floor)
-#[rustfmt::skip]
-const INTERIOR2_LAYER1: [[char; 23]; 23] = [
-    ['W', 'W', 'W', 'D', 'W', 'W', 'W', 'W', 'W', ' ', ' ', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'D', 'W', 'W', 'W',],
-    ['U', ' ', ' ', ' ', ' ', ' ', 'C', 'W', 'L', ' ', ' ', 'L', 'W', 'A', 'A', 'W', ' ', ' ', ' ', ' ', ' ', 'L', 'W',],
-    [' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W', ' ', ' ', ' ', ' ', 'W', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W',],
-    [' ', ' ', 'W', 'W', 'W', ' ', ' ', 'W', ' ', ' ', ' ', ' ', 'W', ' ', ' ', ' ', ' ', ' ', 'S', 'S', 'S', ' ', 'W',],
-    [' ', ' ', 'W', 'F', ' ', ' ', ' ', 'W', 'C', ' ', ' ', ' ', ' ', ' ', ' ', 'W', 'J', ' ', 'U', 'U', 'U', ' ', 'D',],
-    ['U', ' ', 'W', 'F', ' ', ' ', ' ', 'W', ' ', ' ', ' ', ' ', 'W', ' ', ' ', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W',],
-    ['U', ' ', 'W', 'F', ' ', ' ', ' ', 'D', ' ', ' ', 'T', 'T', 'W', ' ', ' ', ' ', ' ', ' ', 'U', 'W', ' ', 'L', 'W',],
-    [' ', ' ', 'W', 'W', 'W', ' ', ' ', 'W', ' ', ' ', 'T', 'J', 'W', ' ', ' ', ' ', ' ', ' ', ' ', 'W', ' ', ' ', 'W',],
-    [' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W', 'W', 'W', 'W', 'W', 'W', 'D', 'W', 'W', 'W', ' ', ' ', 'W', 'L', ' ', 'W',],
-    ['J', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W', 'C', ' ', ' ', ' ', 'B', 'W', ' ', ' ', 'W', ' ', ' ', 'W',],
-    ['W', 'W', 'W', 'W', 'W', 'L', ' ', ' ', ' ', ' ', 'W', 'C', ' ', ' ', ' ', 'B', 'W', ' ', ' ', 'W', 'W', 'D', 'W',],
-    [' ', 'A', 'B', 'B', 'W', 'W', 'W', 'W', ' ', ' ', 'W', ' ', ' ', ' ', ' ', 'B', 'W', ' ', ' ', ' ', ' ', ' ', 'W',],
-    [' ', ' ', ' ', 'B', 'W', 'L', ' ', ' ', ' ', ' ', 'W', 'L', ' ', ' ', 'B', 'W', 'W', 'B', 'B', 'W', ' ', ' ', 'W',],
-    [' ', ' ', ' ', 'B', 'W', ' ', ' ', ' ', ' ', ' ', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', ' ', ' ', 'D',],
-    [' ', ' ', ' ', ' ', 'D', ' ', ' ', 'U', ' ', ' ', ' ', 'D', ' ', ' ', 'F', 'F', 'W', 'A', 'A', 'W', ' ', ' ', 'W',],
-    [' ', ' ', ' ', ' ', 'W', ' ', ' ', 'U', ' ', ' ', 'W', 'W', ' ', ' ', ' ', ' ', 'C', ' ', ' ', 'W', ' ', ' ', 'W',],
-    ['C', ' ', ' ', ' ', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', ' ', ' ', ' ', ' ', 'L', ' ', ' ', 'W', 'W', 'D', 'W',],
-    [' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'D', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W',],
-    ['L', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W', 'L', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W',],
-    ['W', 'W', 'W', 'W', 'W', 'W', ' ', ' ', 'U', 'U', ' ', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', ' ', 'W',],
-    [' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'U', 'U', ' ', 'W', 'B', ' ', 'U', 'U', 'B', ' ', ' ', ' ', ' ', ' ', 'W',],
-    ['S', 'S', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W', 'B', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'B', ' ', 'W',],
-    ['U', 'U', ' ', ' ', ' ', 'L', 'B', 'B', 'B', ' ', ' ', 'W', 'B', 'B', 'B', 'B', 'B', 'B', 'B', ' ', 'B', 'D', 'W',],
-];
+const INTERIOR_1_BYTES: &[u8] = include_bytes!("../../../assets/structures/interior_1.nbt");
+const INTERIOR_2_BYTES: &[u8] = include_bytes!("../../../assets/structures/interior_2.nbt");
+const ABANDONED_INTERIOR_1_BYTES: &[u8] =
+    include_bytes!("../../../assets/structures/abandoned_interior_1.nbt");
+const ABANDONED_INTERIOR_2_BYTES: &[u8] =
+    include_bytes!("../../../assets/structures/abandoned_interior_2.nbt");
 
-/// Interior layout for building level floors (2nd layer above floor)
-#[rustfmt::skip]
-const INTERIOR2_LAYER2: [[char; 23]; 23] = [
-    ['W', 'W', 'W', 'D', 'W', 'W', 'W', 'W', 'W', ' ', ' ', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'D', 'W', 'W', 'W',],
-    ['P', ' ', ' ', ' ', ' ', ' ', ' ', 'W', 'E', ' ', ' ', 'E', 'W', ' ', ' ', 'W', ' ', ' ', ' ', ' ', ' ', 'E', 'W',],
-    [' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W', ' ', ' ', ' ', ' ', 'W', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W',],
-    [' ', ' ', 'W', 'W', 'W', ' ', ' ', 'W', ' ', ' ', ' ', ' ', 'W', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W',],
-    [' ', ' ', 'W', 'F', ' ', ' ', ' ', 'W', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W', ' ', ' ', 'P', 'P', 'P', ' ', 'D',],
-    ['P', ' ', 'W', 'F', ' ', ' ', ' ', 'W', ' ', ' ', ' ', ' ', 'W', ' ', ' ', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W',],
-    ['P', ' ', 'W', 'F', ' ', ' ', ' ', 'D', ' ', ' ', ' ', ' ', 'W', ' ', ' ', ' ', ' ', ' ', 'P', 'W', ' ', 'P', 'W',],
-    [' ', ' ', 'W', 'W', 'W', ' ', ' ', 'W', ' ', ' ', ' ', ' ', 'W', ' ', ' ', ' ', ' ', ' ', ' ', 'W', ' ', ' ', 'W',],
-    [' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W', 'W', 'W', 'W', 'W', 'W', 'D', 'W', 'W', 'W', ' ', ' ', 'W', ' ', ' ', 'W',],
-    [' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W', 'P', ' ', ' ', ' ', 'B', 'W', ' ', ' ', 'W', ' ', ' ', 'W',],
-    ['W', 'W', 'W', 'W', 'W', 'E', ' ', ' ', ' ', ' ', 'W', 'P', ' ', ' ', ' ', 'B', 'W', ' ', ' ', 'W', 'W', 'D', 'W',],
-    [' ', ' ', 'B', 'B', 'W', 'W', 'W', 'W', ' ', ' ', 'W', ' ', ' ', ' ', ' ', 'B', 'W', ' ', ' ', ' ', ' ', ' ', 'W',],
-    [' ', ' ', ' ', 'B', 'W', 'E', ' ', ' ', ' ', ' ', 'W', 'E', ' ', ' ', 'B', 'W', 'W', 'B', 'B', 'W', ' ', ' ', 'W',],
-    [' ', ' ', ' ', 'B', 'W', ' ', ' ', ' ', ' ', ' ', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', ' ', ' ', 'D',],
-    [' ', ' ', ' ', ' ', 'D', ' ', ' ', 'P', ' ', ' ', ' ', 'D', ' ', ' ', ' ', ' ', 'W', ' ', ' ', 'W', ' ', ' ', 'W',],
-    [' ', ' ', ' ', ' ', 'W', ' ', ' ', 'P', ' ', ' ', 'W', 'W', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W', ' ', ' ', 'W',],
-    [' ', ' ', ' ', ' ', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', ' ', ' ', ' ', ' ', 'E', ' ', ' ', 'W', 'W', 'D', 'W',],
-    [' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'D', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W',],
-    ['E', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W', 'E', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W',],
-    ['W', 'W', 'W', 'W', 'W', 'W', ' ', ' ', 'P', 'P', ' ', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', ' ', 'W',],
-    [' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'P', 'P', ' ', 'W', 'B', ' ', 'P', 'P', 'B', ' ', ' ', ' ', ' ', ' ', 'W',],
-    [' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W', 'B', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'B', ' ', 'W',],
-    ['P', 'P', ' ', ' ', ' ', 'E', 'B', 'B', 'B', ' ', ' ', 'W', 'B', 'B', 'B', 'B', 'B', 'B', 'B', ' ', 'B', ' ', 'D',],
-];
+const INTERIOR_1_CONFIG: TemplateConfig = TemplateConfig {
+    path: "assets/structures/interior_1.nbt",
+    generic_wall_block: "minecraft:bricks",
+    embedded: INTERIOR_1_BYTES,
+};
 
-// Generic Abandoned Building Interiors
-/// Interior layout for building ground floors (1st layer above floor)
-#[rustfmt::skip]
-const ABANDONED_INTERIOR1_LAYER1: [[char; 23]; 23] = [
-    ['1', 'U', ' ', 'W', 'C', ' ', ' ', ' ', 'S', 'S', 'W', 'b', 'T', 'T', 'd', 'W', '7', '8', ' ', ' ', ' ', ' ', 'W',],
-    ['2', ' ', ' ', 'W', 'F', ' ', ' ', ' ', 'U', 'U', 'W', 'b', 'T', 'T', 'd', 'W', '7', '8', ' ', ' ', ' ', 'B', 'W',],
-    [' ', ' ', ' ', 'W', 'F', ' ', ' ', ' ', ' ', ' ', 'W', 'b', 'T', 'T', 'd', 'W', 'W', 'W', 'D', 'W', 'W', 'W', 'W',],
-    ['W', 'W', 'D', 'W', 'L', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'M', 'W', ' ', ' ', ' ', ' ', ' ', ' ', 'W',],
-    [' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'D', ' ', ' ', ' ', ' ', ' ', ' ', 'W',],
-    [' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W', 'W', 'W', 'W', 'D', 'W', 'W', 'W', 'W', 'D', 'W', 'W', ' ', ' ', 'D',],
-    [' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W', 'c', 'c', 'c', ' ', ' ', 'J', 'W', ' ', ' ', ' ', 'd', 'W', 'W', 'W',],
-    ['W', 'W', 'W', 'W', 'D', 'W', ' ', ' ', 'W', 'T', 'S', 'S', 'T', ' ', ' ', 'W', 'S', 'S', ' ', 'd', 'W', 'W', 'W',],
-    [' ', ' ', ' ', ' ', ' ', 'W', ' ', ' ', 'W', 'T', 'T', 'T', 'T', ' ', ' ', 'W', 'U', 'U', ' ', 'd', 'W', ' ', ' ',],
-    [' ', ' ', ' ', ' ', ' ', 'W', ' ', ' ', 'D', 'T', 'T', 'T', 'T', ' ', 'B', 'W', ' ', ' ', ' ', 'd', 'W', ' ', ' ',],
-    ['L', ' ', 'M', 'L', 'W', 'W', ' ', ' ', 'W', 'J', 'U', 'U', ' ', ' ', 'B', 'W', 'W', 'D', 'W', 'W', 'W', ' ', ' ',],
-    ['W', 'W', 'W', 'W', 'W', 'W', ' ', ' ', 'W', 'W', 'W', 'W', 'W', 'D', 'W', 'W', ' ', ' ', 'W', 'C', 'C', 'W', 'W',],
-    ['c', 'c', ' ', 'W', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'D', ' ', ' ', 'W', ' ', ' ', 'W', 'W',],
-    [' ', ' ', ' ', 'D', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'D', ' ', ' ', ' ', ' ', ' ', ' ', 'D',],
-    [' ', '6', ' ', 'W', ' ', ' ', 'W', 'W', 'W', 'W', 'W', 'D', 'W', 'W', 'D', 'W', ' ', ' ', ' ', ' ', ' ', ' ', 'W',],
-    ['U', '5', ' ', 'W', ' ', ' ', 'W', 'C', 'F', 'F', ' ', ' ', 'W', ' ', ' ', 'W', 'W', 'D', 'W', 'W', ' ', ' ', 'W',],
-    ['W', 'W', 'W', 'W', ' ', ' ', 'W', ' ', ' ', ' ', ' ', ' ', 'W', 'L', ' ', 'W', 'M', ' ', 'b', 'W', ' ', ' ', 'W',],
-    ['B', ' ', ' ', ' ', ' ', ' ', 'D', ' ', ' ', ' ', ' ', ' ', 'W', ' ', ' ', 'W', ' ', ' ', 'b', 'W', 'J', ' ', 'W',],
-    [' ', ' ', ' ', ' ', ' ', ' ', 'W', ' ', ' ', ' ', ' ', ' ', ' ', 'W', ' ', 'W', 'U', ' ', ' ', 'W', 'B', ' ', 'D',],
-    ['J', ' ', ' ', 'C', 'a', 'a', 'W', 'L', 'F', ' ', 'W', 'F', ' ', 'W', 'L', 'W', '7', '8', ' ', 'W', 'B', ' ', 'W',],
-    ['B', ' ', ' ', 'd', 'W', 'W', 'W', 'W', 'W', ' ', 'W', 'M', ' ', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'C', ' ', 'W',],
-    ['B', ' ', ' ', 'd', 'W', ' ', ' ', ' ', 'D', ' ', 'W', 'C', ' ', ' ', 'W', 'W', 'c', 'c', 'c', 'c', 'W', 'D', 'W',],
-    ['W', 'W', 'D', 'W', 'C', ' ', ' ', ' ', 'W', 'W', 'W', 'b', 'T', 'T', 'B', 'W', ' ', ' ', ' ', ' ', ' ', ' ', 'W',],
-];
+const INTERIOR_2_CONFIG: TemplateConfig = TemplateConfig {
+    path: "assets/structures/interior_2.nbt",
+    generic_wall_block: "minecraft:bricks",
+    embedded: INTERIOR_2_BYTES,
+};
 
-/// Interior layout for building ground floors (2nd layer above floor)
-#[rustfmt::skip]
-const ABANDONED_INTERIOR1_LAYER2: [[char; 23]; 23] = [
-    [' ', 'P', ' ', 'W', ' ', ' ', ' ', ' ', ' ', ' ', 'W', 'B', ' ', ' ', 'B', 'W', ' ', ' ', ' ', ' ', ' ', ' ', 'W',],
-    [' ', ' ', ' ', 'W', ' ', ' ', ' ', ' ', 'P', 'P', 'W', 'B', ' ', ' ', 'B', 'W', ' ', ' ', ' ', ' ', ' ', 'B', 'W',],
-    [' ', ' ', ' ', 'W', ' ', ' ', ' ', ' ', ' ', ' ', 'W', 'B', ' ', ' ', 'B', 'W', 'W', 'W', 'D', 'W', 'W', 'W', 'W',],
-    ['W', 'W', 'D', 'W', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W', ' ', ' ', ' ', ' ', ' ', ' ', 'W',],
-    [' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'D', ' ', ' ', ' ', ' ', ' ', ' ', 'W',],
-    [' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W', 'W', 'W', 'W', 'D', 'W', 'W', 'W', 'W', 'D', 'W', 'W', ' ', ' ', 'D',],
-    [' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W', 'B', 'B', 'B', ' ', ' ', ' ', 'W', ' ', ' ', ' ', 'B', 'W', 'W', 'W',],
-    ['W', 'W', 'W', 'W', 'D', 'W', ' ', ' ', 'W', ' ', ' ', ' ', ' ', ' ', ' ', 'W', ' ', ' ', ' ', 'B', 'W', 'W', 'W',],
-    [' ', ' ', ' ', ' ', ' ', 'W', ' ', ' ', 'W', ' ', ' ', ' ', ' ', ' ', ' ', 'W', 'P', 'P', ' ', 'B', 'W', ' ', ' ',],
-    [' ', ' ', ' ', ' ', ' ', 'W', ' ', ' ', 'D', ' ', ' ', ' ', ' ', ' ', 'B', 'W', ' ', ' ', ' ', 'B', 'W', ' ', ' ',],
-    [' ', ' ', ' ', ' ', 'W', 'W', ' ', ' ', 'W', ' ', 'P', 'P', ' ', ' ', 'B', 'W', 'W', 'D', 'W', 'W', 'W', ' ', ' ',],
-    ['W', 'W', 'W', 'W', 'W', 'W', ' ', ' ', 'W', 'W', 'W', 'W', 'W', 'D', 'W', 'W', ' ', ' ', 'W', 'C', 'C', 'W', 'W',],
-    ['B', 'B', ' ', 'W', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'D', ' ', ' ', 'W', ' ', ' ', 'W', 'W',],
-    [' ', ' ', ' ', 'D', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'D', ' ', ' ', ' ', ' ', ' ', ' ', 'D',],
-    [' ', ' ', ' ', 'W', ' ', ' ', 'W', 'W', 'W', 'W', 'W', 'D', 'W', 'W', 'D', 'W', ' ', ' ', ' ', ' ', ' ', ' ', 'W',],
-    ['P', ' ', ' ', 'W', ' ', ' ', 'W', 'N', ' ', ' ', ' ', ' ', 'W', ' ', ' ', 'W', 'W', 'D', 'W', 'W', ' ', ' ', 'W',],
-    ['W', 'W', 'W', 'W', ' ', ' ', 'W', ' ', ' ', ' ', ' ', ' ', 'W', ' ', ' ', 'W', ' ', ' ', 'B', 'W', ' ', ' ', 'W',],
-    ['B', ' ', ' ', ' ', ' ', ' ', 'D', ' ', ' ', ' ', ' ', ' ', 'W', ' ', ' ', 'W', ' ', ' ', 'C', 'W', ' ', ' ', 'W',],
-    [' ', ' ', ' ', ' ', ' ', ' ', 'W', ' ', ' ', ' ', ' ', ' ', ' ', 'W', ' ', 'W', 'P', ' ', ' ', 'W', 'B', ' ', 'D',],
-    [' ', ' ', ' ', ' ', 'B', 'B', 'W', ' ', ' ', ' ', 'W', ' ', ' ', 'W', 'P', 'W', ' ', ' ', ' ', 'W', 'B', ' ', 'W',],
-    ['B', ' ', ' ', 'B', 'W', 'W', 'W', 'W', 'W', ' ', 'W', ' ', ' ', 'W', 'W', 'W', 'W', 'W', 'W', 'W', ' ', ' ', 'W',],
-    ['B', ' ', ' ', 'B', 'W', ' ', ' ', ' ', 'D', ' ', 'W', 'N', ' ', ' ', 'W', 'W', 'B', 'B', 'B', 'B', 'W', 'D', 'W',],
-    ['W', 'W', 'D', 'W', ' ', ' ', ' ', ' ', 'W', 'W', 'W', 'B', ' ', ' ', 'B', 'W', ' ', ' ', ' ', ' ', ' ', ' ', 'W',],
-];
+const ABANDONED_INTERIOR_1_CONFIG: TemplateConfig = TemplateConfig {
+    path: "assets/structures/abandoned_interior_1.nbt",
+    generic_wall_block: "minecraft:bricks",
+    embedded: ABANDONED_INTERIOR_1_BYTES,
+};
 
-/// Interior layout for building level floors (1st layer above floor)
-#[rustfmt::skip]
-const ABANDONED_INTERIOR2_LAYER1: [[char; 23]; 23] = [
-    ['W', 'W', 'W', 'D', 'W', 'W', 'W', 'W', 'W', ' ', ' ', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'D', 'W', 'W', 'W',],
-    ['U', ' ', ' ', ' ', ' ', ' ', 'C', 'W', 'L', ' ', ' ', 'L', 'W', 'M', 'M', 'W', ' ', ' ', ' ', ' ', ' ', 'L', 'W',],
-    [' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W', ' ', ' ', ' ', ' ', 'W', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W',],
-    [' ', ' ', 'W', 'W', 'W', ' ', ' ', 'Q', ' ', ' ', ' ', ' ', 'W', ' ', ' ', ' ', ' ', ' ', 'S', 'S', 'S', ' ', 'W',],
-    [' ', ' ', 'W', 'F', ' ', ' ', ' ', 'Q', 'C', ' ', ' ', ' ', ' ', ' ', ' ', 'W', 'J', ' ', 'U', 'U', 'U', ' ', 'D',],
-    ['U', ' ', 'W', 'F', ' ', ' ', ' ', 'W', ' ', ' ', ' ', ' ', 'W', ' ', ' ', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W',],
-    ['U', ' ', 'W', 'F', ' ', ' ', ' ', 'D', ' ', ' ', 'T', 'T', 'W', ' ', ' ', ' ', ' ', ' ', 'U', 'W', ' ', 'L', 'W',],
-    [' ', ' ', 'W', 'W', 'W', ' ', ' ', 'W', ' ', ' ', 'T', 'J', 'W', ' ', ' ', ' ', ' ', ' ', ' ', 'W', ' ', ' ', 'W',],
-    [' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W', 'W', 'W', 'W', 'W', 'W', 'D', 'W', 'W', 'W', ' ', ' ', 'W', 'L', ' ', 'W',],
-    ['J', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W', 'C', ' ', ' ', ' ', 'B', 'W', ' ', ' ', 'W', ' ', ' ', 'W',],
-    ['W', 'W', 'W', 'W', 'W', 'L', ' ', ' ', ' ', ' ', 'W', 'C', ' ', ' ', ' ', 'B', 'W', ' ', ' ', 'W', 'W', 'D', 'W',],
-    [' ', 'M', 'c', 'B', 'W', 'W', 'W', 'W', ' ', ' ', 'W', ' ', ' ', ' ', ' ', 'B', 'W', ' ', ' ', ' ', ' ', ' ', 'W',],
-    [' ', ' ', ' ', 'd', 'W', 'L', ' ', ' ', ' ', ' ', 'W', 'L', ' ', ' ', 'B', 'W', 'W', 'B', 'B', 'W', ' ', ' ', 'W',],
-    [' ', ' ', ' ', 'd', 'W', ' ', ' ', ' ', ' ', ' ', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', ' ', ' ', 'D',],
-    [' ', ' ', ' ', ' ', 'D', ' ', ' ', 'U', ' ', ' ', ' ', 'D', ' ', ' ', 'F', 'F', 'W', 'M', 'M', 'W', ' ', ' ', 'W',],
-    [' ', ' ', ' ', ' ', 'W', ' ', ' ', 'U', ' ', ' ', 'W', 'W', ' ', ' ', ' ', ' ', 'C', ' ', ' ', 'W', ' ', ' ', 'W',],
-    ['C', ' ', ' ', ' ', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', ' ', ' ', ' ', ' ', 'L', ' ', ' ', 'W', 'W', 'D', 'W',],
-    [' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'D', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W',],
-    ['L', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W', 'L', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W',],
-    ['W', 'W', 'W', 'W', 'W', 'W', ' ', ' ', 'U', 'U', ' ', 'Q', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', ' ', 'W',],
-    [' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'U', 'U', ' ', 'Q', 'b', ' ', 'U', 'U', 'B', ' ', ' ', ' ', ' ', ' ', 'W',],
-    ['S', 'S', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'Q', 'b', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'd', ' ', 'W',],
-    ['U', 'U', ' ', ' ', ' ', 'L', 'a', 'a', 'a', ' ', ' ', 'Q', 'B', 'a', 'a', 'a', 'a', 'a', 'a', ' ', 'd', 'D', 'W',],
-];
+const ABANDONED_INTERIOR_2_CONFIG: TemplateConfig = TemplateConfig {
+    path: "assets/structures/abandoned_interior_2.nbt",
+    generic_wall_block: "minecraft:bricks",
+    embedded: ABANDONED_INTERIOR_2_BYTES,
+};
 
-/// Interior layout for building level floors (2nd layer above floor)
-#[rustfmt::skip]
-const ABANDONED_INTERIOR2_LAYER2: [[char; 23]; 23] = [
-    ['W', 'W', 'W', 'D', 'W', 'W', 'W', 'W', 'W', ' ', ' ', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'D', 'W', 'W', 'W',],
-    ['P', ' ', ' ', ' ', ' ', ' ', ' ', 'W', 'O', ' ', ' ', 'O', 'W', ' ', ' ', 'W', ' ', ' ', ' ', ' ', ' ', 'O', 'W',],
-    [' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W', ' ', ' ', ' ', ' ', 'W', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W',],
-    [' ', ' ', 'W', 'W', 'W', ' ', ' ', 'Q', ' ', ' ', ' ', ' ', 'W', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W',],
-    [' ', ' ', 'W', 'F', ' ', ' ', ' ', 'Q', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W', ' ', ' ', 'P', 'P', 'P', ' ', 'D',],
-    ['P', ' ', 'W', 'F', ' ', ' ', ' ', 'W', ' ', ' ', ' ', ' ', 'W', ' ', ' ', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W',],
-    ['P', ' ', 'W', 'F', ' ', ' ', ' ', 'D', ' ', ' ', ' ', ' ', 'W', ' ', ' ', ' ', ' ', ' ', 'P', 'W', ' ', 'P', 'W',],
-    [' ', ' ', 'W', 'W', 'W', ' ', ' ', 'W', ' ', ' ', ' ', ' ', 'W', ' ', ' ', ' ', ' ', ' ', ' ', 'W', ' ', ' ', 'W',],
-    [' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W', 'W', 'W', 'W', 'W', 'W', 'D', 'W', 'W', 'W', ' ', ' ', 'W', ' ', ' ', 'W',],
-    [' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W', 'P', ' ', ' ', ' ', 'B', 'W', ' ', ' ', 'W', ' ', ' ', 'W',],
-    ['W', 'W', 'W', 'W', 'W', 'O', ' ', ' ', ' ', ' ', 'W', 'P', ' ', ' ', ' ', 'B', 'W', ' ', ' ', 'W', 'W', 'D', 'W',],
-    [' ', ' ', 'c', 'B', 'W', 'W', 'W', 'W', ' ', ' ', 'W', ' ', ' ', ' ', ' ', 'B', 'W', ' ', ' ', ' ', ' ', ' ', 'W',],
-    [' ', ' ', ' ', 'd', 'W', 'O', ' ', ' ', ' ', ' ', 'W', 'O', ' ', ' ', 'B', 'W', 'W', 'B', 'B', 'W', ' ', ' ', 'W',],
-    [' ', ' ', ' ', 'd', 'W', ' ', ' ', ' ', ' ', ' ', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', ' ', ' ', 'D',],
-    [' ', ' ', ' ', ' ', 'D', ' ', ' ', 'P', ' ', ' ', ' ', 'D', ' ', ' ', ' ', ' ', 'W', ' ', ' ', 'W', ' ', ' ', 'W',],
-    [' ', ' ', ' ', ' ', 'W', ' ', ' ', 'P', ' ', ' ', 'W', 'W', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W', ' ', ' ', 'W',],
-    [' ', ' ', ' ', ' ', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', ' ', ' ', ' ', ' ', 'O', ' ', ' ', 'W', 'W', 'D', 'W',],
-    [' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'D', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W',],
-    ['O', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W', 'O', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'W',],
-    ['W', 'W', 'W', 'W', 'W', 'W', ' ', ' ', 'P', 'P', ' ', 'Q', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', ' ', 'W',],
-    [' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'P', 'P', ' ', 'Q', 'b', ' ', 'P', 'P', 'c', ' ', ' ', ' ', ' ', ' ', 'W',],
-    [' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'Q', 'b', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'd', ' ', 'W',],
-    ['P', 'P', ' ', ' ', ' ', 'O', 'a', 'a', 'a', ' ', ' ', 'Q', 'b', 'a', 'a', 'a', 'a', 'a', 'a', ' ', 'd', ' ', 'D',],
-];
+enum PaletteMapping {
+    Skip,
+    GenericWall,
+    Block(Block, Option<Value>),
+}
 
-/// Maps interior layout characters to actual block types for different floor layers
-#[inline(always)]
-pub fn get_interior_block(c: char, is_layer2: bool, wall_block: Block) -> Option<Block> {
-    match c {
-        ' ' => None,                     // Nothing
-        'W' => Some(wall_block),         // Use the building's wall block for interior walls
-        'U' => Some(OAK_FENCE),          // Oak Fence
-        'S' => Some(OAK_STAIRS),         // Oak Stairs
-        'B' => Some(BOOKSHELF),          // Bookshelf
-        'C' => Some(CRAFTING_TABLE),     // Crafting Table
-        'F' => Some(FURNACE),            // Furnace
-        '1' => Some(RED_BED_NORTH_HEAD), // Bed North Head
-        '2' => Some(RED_BED_NORTH_FOOT), // Bed North Foot
-        '3' => Some(RED_BED_EAST_HEAD),  // Bed East Head
-        '4' => Some(RED_BED_EAST_FOOT),  // Bed East Foot
-        '5' => Some(RED_BED_SOUTH_HEAD), // Bed South Head
-        '6' => Some(RED_BED_SOUTH_FOOT), // Bed South Foot
-        '7' => Some(RED_BED_WEST_HEAD),  // Bed West Head
-        '8' => Some(RED_BED_WEST_FOOT),  // Bed West Foot
-        // 'H' => Some(CHEST),           // Chest
-        'L' => Some(CAULDRON),           // Cauldron
-        'A' => Some(ANVIL),              // Anvil
-        'P' => Some(OAK_PRESSURE_PLATE), // Pressure Plate
-        'D' => {
-            // Use different door types for different layers
-            if is_layer2 {
-                Some(DARK_OAK_DOOR_UPPER)
-            } else {
-                Some(DARK_OAK_DOOR_LOWER)
-            }
+struct InteriorTemplate {
+    template: StructureTemplate,
+    palette_mapping: Vec<PaletteMapping>,
+    door_lower_states: Vec<bool>,
+}
+
+static INTERIOR_1_TEMPLATE: OnceLock<Option<InteriorTemplate>> = OnceLock::new();
+static INTERIOR_2_TEMPLATE: OnceLock<Option<InteriorTemplate>> = OnceLock::new();
+static ABANDONED_INTERIOR_1_TEMPLATE: OnceLock<Option<InteriorTemplate>> = OnceLock::new();
+static ABANDONED_INTERIOR_2_TEMPLATE: OnceLock<Option<InteriorTemplate>> = OnceLock::new();
+
+fn get_template(
+    cache: &'static OnceLock<Option<InteriorTemplate>>,
+    config: &TemplateConfig,
+) -> Option<&'static InteriorTemplate> {
+    cache.get_or_init(|| load_template(config)).as_ref()
+}
+
+fn load_template(config: &TemplateConfig) -> Option<InteriorTemplate> {
+    let template = match StructureTemplate::from_file_or_bytes(config.path, config.embedded) {
+        Ok(template) => template,
+        Err(err) => {
+            eprintln!("{err}");
+            return None;
         }
-        'J' => Some(NOTE_BLOCK),                // Note block
-        'G' => Some(GLOWSTONE),                 // Glowstone
-        'N' => Some(BREWING_STAND),             // Brewing Stand
-        'T' => Some(WHITE_CARPET),              // White Carpet
-        'E' => Some(OAK_LEAVES),                // Oak Leaves
-        'O' => Some(COBWEB),                    // Cobweb
-        'a' => Some(CHISELLED_BOOKSHELF_NORTH), // Chiseled Bookshelf
-        'b' => Some(CHISELLED_BOOKSHELF_EAST),  // Chiseled Bookshelf East
-        'c' => Some(CHISELLED_BOOKSHELF_SOUTH), // Chiseled Bookshelf South
-        'd' => Some(CHISELLED_BOOKSHELF_WEST),  // Chiseled Bookshelf West
-        'M' => Some(DAMAGED_ANVIL),             // Damaged Anvil
-        'Q' => Some(SCAFFOLDING),               // Scaffolding
-        _ => None,                              // Default case for unknown characters
+    };
+
+    let (palette_mapping, door_lower_states) =
+        build_palette_mapping(&template, config.generic_wall_block, config.path);
+
+    Some(InteriorTemplate {
+        template,
+        palette_mapping,
+        door_lower_states,
+    })
+}
+
+fn build_palette_mapping(
+    template: &StructureTemplate,
+    generic_wall_block: &str,
+    template_path: &str,
+) -> (Vec<PaletteMapping>, Vec<bool>) {
+    let normalized_wall = normalize_block_name(generic_wall_block);
+    let mut palette_mapping = Vec::with_capacity(template.palette.len());
+    let mut door_lower_states = Vec::with_capacity(template.palette.len());
+    let mut unknown_blocks = Vec::new();
+
+    for entry in &template.palette {
+        let name = normalize_block_name(&entry.name);
+        let is_air = name == "air";
+        let is_generic_wall = name == normalized_wall;
+        let is_door_lower = is_lower_door(name, &entry.properties);
+
+        let mapping = if is_air {
+            PaletteMapping::Skip
+        } else if is_generic_wall {
+            PaletteMapping::GenericWall
+        } else if let Some(block) = block_from_java_name(&entry.name) {
+            PaletteMapping::Block(block, entry.properties.clone())
+        } else if name == "chiseled_bookshelf" {
+            PaletteMapping::Block(CHISELLED_BOOKSHELF, entry.properties.clone())
+        } else {
+            unknown_blocks.push(entry.name.clone());
+            PaletteMapping::Skip
+        };
+
+        palette_mapping.push(mapping);
+        door_lower_states.push(is_door_lower);
+    }
+
+    if !unknown_blocks.is_empty() {
+        eprintln!(
+            "Unknown blocks in interior template {}: {}",
+            template_path,
+            unknown_blocks.join(", ")
+        );
+    }
+
+    (palette_mapping, door_lower_states)
+}
+
+fn normalize_block_name(name: &str) -> &str {
+    name.strip_prefix("minecraft:").unwrap_or(name)
+}
+
+fn is_lower_door(name: &str, properties: &Option<Value>) -> bool {
+    if !name.ends_with("_door") {
+        return false;
+    }
+
+    let Some(Value::Compound(props)) = properties else {
+        return false;
+    };
+
+    match props.get("half") {
+        Some(Value::String(half)) => half == "lower",
+        _ => false,
     }
 }
 
-/// Generates interior layouts inside buildings at each floor level
+fn place_template_for_floor(
+    editor: &mut WorldEditor,
+    template: &InteriorTemplate,
+    floor_area_set: &HashSet<(i32, i32)>,
+    interior_min_x: i32,
+    interior_min_z: i32,
+    interior_max_x: i32,
+    interior_max_z: i32,
+    floor_index: usize,
+    floor_y: i32,
+    abs_terrain_offset: i32,
+    wall_block: Block,
+    wall_positions: &mut HashSet<(i32, i32)>,
+    door_positions: &mut HashSet<(i32, i32)>,
+) {
+    let (size_x, size_y, size_z) = template.template.size;
+    if size_x <= 0 || size_z <= 0 || size_y <= 0 {
+        return;
+    }
+
+    let base_origin_x = interior_min_x - floor_index as i32;
+    let base_origin_z = interior_min_z - floor_index as i32;
+
+    let start_tile_x = base_origin_x + (interior_min_x - base_origin_x).div_euclid(size_x) * size_x;
+    let end_tile_x = base_origin_x + (interior_max_x - base_origin_x).div_euclid(size_x) * size_x;
+    let start_tile_z = base_origin_z + (interior_min_z - base_origin_z).div_euclid(size_z) * size_z;
+    let end_tile_z = base_origin_z + (interior_max_z - base_origin_z).div_euclid(size_z) * size_z;
+
+    let base_y = floor_y + INTERIOR_Y_OFFSET;
+    let base_y_absolute = base_y + abs_terrain_offset;
+
+    for tile_z in (start_tile_z..=end_tile_z).step_by(size_z as usize) {
+        for tile_x in (start_tile_x..=end_tile_x).step_by(size_x as usize) {
+            for template_block in &template.template.blocks {
+                if template_block.pos.0 < 0
+                    || template_block.pos.1 < 0
+                    || template_block.pos.2 < 0
+                    || template_block.pos.0 >= size_x
+                    || template_block.pos.1 >= size_y
+                    || template_block.pos.2 >= size_z
+                {
+                    continue;
+                }
+
+                let state = template_block.state;
+                if state >= template.palette_mapping.len() {
+                    continue;
+                }
+
+                let world_x = tile_x + template_block.pos.0;
+                let world_z = tile_z + template_block.pos.2;
+                if world_x < interior_min_x
+                    || world_x > interior_max_x
+                    || world_z < interior_min_z
+                    || world_z > interior_max_z
+                {
+                    continue;
+                }
+
+                if !floor_area_set.contains(&(world_x, world_z)) {
+                    continue;
+                }
+
+                let local_y = template_block.pos.1;
+                let world_y_absolute = base_y_absolute + local_y;
+
+                let mapping = &template.palette_mapping[state];
+
+                match mapping {
+                    PaletteMapping::Skip => {}
+                    PaletteMapping::GenericWall => {
+                        editor.set_block_absolute(
+                            wall_block,
+                            world_x,
+                            world_y_absolute,
+                            world_z,
+                            None,
+                            None,
+                        );
+
+                        if local_y == 0 {
+                            wall_positions.insert((world_x, world_z));
+                        }
+                    }
+                    PaletteMapping::Block(block, props) => {
+                        let mut block_props = props.clone();
+                        let mut block_entity = template_block.nbt.clone();
+
+                        if is_chiseled_bookshelf(*block) {
+                            if let Some(ref mut nbt) = block_entity {
+                                if let Some(occupied) = normalize_chiseled_bookshelf_nbt(nbt) {
+                                    apply_bookshelf_slot_properties(&mut block_props, occupied);
+                                }
+                            }
+                        }
+
+                        if let Some(props) = &block_props {
+                            editor.set_block_with_properties_absolute(
+                                BlockWithProperties::new(*block, Some(props.clone())),
+                                world_x,
+                                world_y_absolute,
+                                world_z,
+                                None,
+                                None,
+                            );
+                        } else {
+                            editor.set_block_absolute(
+                                *block,
+                                world_x,
+                                world_y_absolute,
+                                world_z,
+                                None,
+                                None,
+                            );
+                        }
+
+                        if local_y == 0 && template.door_lower_states[state] {
+                            door_positions.insert((world_x, world_z));
+                        }
+
+                        if let Some(nbt) = block_entity {
+                            editor.add_block_entity_absolute(
+                                world_x,
+                                world_y_absolute,
+                                world_z,
+                                nbt,
+                            );
+                        }
+                    }
+                }
+            }
+
+            for entity in &template.template.entities {
+                let world_x = tile_x + entity.block_pos.0;
+                let world_z = tile_z + entity.block_pos.2;
+                if world_x < interior_min_x
+                    || world_x > interior_max_x
+                    || world_z < interior_min_z
+                    || world_z > interior_max_z
+                {
+                    continue;
+                }
+
+                if !floor_area_set.contains(&(world_x, world_z)) {
+                    continue;
+                }
+
+                let world_block_y_absolute = base_y_absolute + entity.block_pos.1;
+                let world_pos = (
+                    tile_x as f64 + entity.pos.0,
+                    base_y_absolute as f64 + entity.pos.1,
+                    tile_z as f64 + entity.pos.2,
+                );
+
+                editor.add_entity_nbt_absolute(
+                    entity.nbt.clone(),
+                    world_pos,
+                    (world_x, world_block_y_absolute, world_z),
+                );
+            }
+        }
+    }
+}
+
+fn is_chiseled_bookshelf(block: Block) -> bool {
+    block.name() == "chiseled_bookshelf"
+}
+
+fn normalize_chiseled_bookshelf_nbt(nbt: &mut HashMap<String, Value>) -> Option<[bool; 6]> {
+    let Some(Value::List(items)) = nbt.get_mut("Items") else {
+        return None;
+    };
+
+    let mut occupied = [false; 6];
+
+    for item in items.iter_mut() {
+        let Value::Compound(item_map) = item else {
+            continue;
+        };
+
+        if let Some(slot) = item_map.get("Slot").and_then(value_to_i32) {
+            if (0..6).contains(&slot) {
+                occupied[slot as usize] = true;
+            }
+        }
+
+        normalize_item_stack(item_map);
+    }
+
+    Some(occupied)
+}
+
+fn normalize_item_stack(item: &mut HashMap<String, Value>) {
+    let count = item
+        .get("count")
+        .and_then(value_to_i32)
+        .or_else(|| item.get("Count").and_then(value_to_i32))
+        .unwrap_or(1)
+        .max(1);
+
+    let count_byte = count.clamp(1, i8::MAX as i32) as i8;
+
+    item.insert("count".to_string(), Value::Int(count));
+    item.insert("Count".to_string(), Value::Byte(count_byte));
+
+    if let Some(slot) = item.get("Slot").and_then(value_to_i32) {
+        item.insert("Slot".to_string(), Value::Byte(slot.clamp(0, 127) as i8));
+    }
+
+    let Some(Value::String(id)) = item.get("id") else {
+        return;
+    };
+
+    match id.as_str() {
+        "minecraft:enchanted_book" => ensure_legacy_enchanted_book(item),
+        "minecraft:writable_book" => ensure_legacy_writable_book(item),
+        _ => {}
+    }
+}
+
+fn ensure_legacy_enchanted_book(item: &mut HashMap<String, Value>) {
+    let Some(Value::Compound(components)) = item.get("components") else {
+        return;
+    };
+
+    let stored = match components.get("minecraft:stored_enchantments") {
+        Some(Value::Compound(map)) => {
+            let mut list = Vec::new();
+            for (id, lvl) in map {
+                let Some(level) = value_to_i32(lvl) else {
+                    continue;
+                };
+                let mut entry = HashMap::new();
+                entry.insert("id".to_string(), Value::String(id.clone()));
+                entry.insert(
+                    "lvl".to_string(),
+                    Value::Short(level.clamp(0, i16::MAX as i32) as i16),
+                );
+                list.push(Value::Compound(entry));
+            }
+            list
+        }
+        Some(Value::List(list)) => {
+            let mut entries = Vec::new();
+            for value in list {
+                if let Value::Compound(map) = value {
+                    let Some(Value::String(id)) = map.get("id") else {
+                        continue;
+                    };
+                    let Some(level) = map.get("lvl").and_then(value_to_i32) else {
+                        continue;
+                    };
+                    let mut entry = HashMap::new();
+                    entry.insert("id".to_string(), Value::String(id.clone()));
+                    entry.insert(
+                        "lvl".to_string(),
+                        Value::Short(level.clamp(0, i16::MAX as i32) as i16),
+                    );
+                    entries.push(Value::Compound(entry));
+                }
+            }
+            entries
+        }
+        _ => Vec::new(),
+    };
+
+    if stored.is_empty() {
+        return;
+    }
+
+    let tag_entry = item
+        .entry("tag".to_string())
+        .or_insert_with(|| Value::Compound(HashMap::new()));
+
+    if let Value::Compound(tag) = tag_entry {
+        tag.entry("StoredEnchantments".to_string())
+            .or_insert(Value::List(stored));
+    }
+}
+
+fn ensure_legacy_writable_book(item: &mut HashMap<String, Value>) {
+    let tag_entry = item
+        .entry("tag".to_string())
+        .or_insert_with(|| Value::Compound(HashMap::new()));
+
+    if let Value::Compound(tag) = tag_entry {
+        tag.entry("pages".to_string())
+            .or_insert_with(|| Value::List(vec![Value::String(String::new())]));
+    }
+}
+
+fn apply_bookshelf_slot_properties(props: &mut Option<Value>, occupied: [bool; 6]) {
+    let mut map = match props.take() {
+        Some(Value::Compound(map)) => map,
+        _ => HashMap::new(),
+    };
+
+    for (idx, filled) in occupied.iter().enumerate() {
+        map.insert(
+            format!("slot_{}_occupied", idx),
+            Value::String(if *filled { "true" } else { "false" }.to_string()),
+        );
+    }
+
+    *props = Some(Value::Compound(map));
+}
+
+fn value_to_i32(value: &Value) -> Option<i32> {
+    match value {
+        Value::Byte(v) => Some(i32::from(*v)),
+        Value::Short(v) => Some(i32::from(*v)),
+        Value::Int(v) => Some(*v),
+        Value::Long(v) => i32::try_from(*v).ok(),
+        Value::Float(v) => Some(*v as i32),
+        Value::Double(v) => Some(*v as i32),
+        _ => None,
+    }
+}
+
+/// Generates interior layouts inside buildings at each floor level.
 #[allow(clippy::too_many_arguments)]
 pub fn generate_building_interior(
     editor: &mut WorldEditor,
@@ -297,7 +494,7 @@ pub fn generate_building_interior(
     let depth = max_z - min_z + 1;
 
     if width < 8 || depth < 8 {
-        return; // Building too small for interior
+        return;
     }
 
     // For efficiency, create a HashSet of floor area coordinates
@@ -312,118 +509,78 @@ pub fn generate_building_interior(
 
     // Generate interiors for each floor
     for (floor_index, &floor_y) in floor_levels.iter().enumerate() {
-        // Store wall and door positions for this floor to extend them to the ceiling
-        let mut wall_positions = Vec::new();
-        let mut door_positions = Vec::new();
+        let mut wall_positions = HashSet::new();
+        let mut door_positions = HashSet::new();
 
-        // Determine the floor extension height (ceiling) - either next floor or roof
         let current_floor_ceiling = if floor_index < floor_levels.len() - 1 {
-            // For intermediate floors, extend walls up to just below the next floor
             floor_levels[floor_index + 1] - 1
+        } else if args.roof
+            && element.tags.contains_key("roof:shape")
+            && element.tags.get("roof:shape").unwrap() != "flat"
+        {
+            start_y_offset + building_height
         } else {
-            // Last floor ceiling depends on roof generation
-            if args.roof
-                && element.tags.contains_key("roof:shape")
-                && element.tags.get("roof:shape").unwrap() != "flat"
-            {
-                // When roof generation is enabled with non-flat roofs, stop at building height (no extra ceiling)
-                start_y_offset + building_height
-            } else {
-                // When roof generation is disabled or flat roof, extend to building top + 1 (includes ceiling)
-                start_y_offset + building_height + 1
-            }
+            start_y_offset + building_height + 1
         };
 
-        // Choose the appropriate interior pattern based on floor number
-        let (layer1, layer2) = if is_abandoned_building {
+        let template = if is_abandoned_building {
             if floor_index == 0 {
-                (&ABANDONED_INTERIOR1_LAYER1, &ABANDONED_INTERIOR1_LAYER2)
+                get_template(&ABANDONED_INTERIOR_1_TEMPLATE, &ABANDONED_INTERIOR_1_CONFIG)
             } else {
-                (&ABANDONED_INTERIOR2_LAYER1, &ABANDONED_INTERIOR2_LAYER2)
+                get_template(&ABANDONED_INTERIOR_2_TEMPLATE, &ABANDONED_INTERIOR_2_CONFIG)
             }
         } else if floor_index == 0 {
-            // Ground floor uses INTERIOR1 patterns
-            (&INTERIOR1_LAYER1, &INTERIOR1_LAYER2)
+            get_template(&INTERIOR_1_TEMPLATE, &INTERIOR_1_CONFIG)
         } else {
-            // Upper floors use INTERIOR2 patterns
-            (&INTERIOR2_LAYER1, &INTERIOR2_LAYER2)
+            get_template(&INTERIOR_2_TEMPLATE, &INTERIOR_2_CONFIG)
         };
 
-        // Get dimensions for the selected pattern
-        let pattern_height = layer1.len() as i32;
-        let pattern_width = layer1[0].len() as i32;
+        let Some(template) = template else {
+            continue;
+        };
 
-        // Calculate Y offset - place interior 1 block above floor level consistently
-        let y_offset = 1;
+        place_template_for_floor(
+            editor,
+            template,
+            &floor_area_set,
+            interior_min_x,
+            interior_min_z,
+            interior_max_x,
+            interior_max_z,
+            floor_index,
+            floor_y,
+            abs_terrain_offset,
+            wall_block,
+            &mut wall_positions,
+            &mut door_positions,
+        );
 
-        // Create a seamless repeating pattern across the interior of this floor
-        for z in interior_min_z..=interior_max_z {
-            for x in interior_min_x..=interior_max_x {
-                // Skip if outside the building's floor area
-                if !floor_area_set.contains(&(x, z)) {
-                    continue;
-                }
-
-                // Map the world coordinates to pattern coordinates using modulo
-                // This creates a seamless tiling effect across the entire building
-                // Add floor_index offset to create variation between floors
-                let pattern_x = ((x - interior_min_x + floor_index as i32) % pattern_width
-                    + pattern_width)
-                    % pattern_width;
-                let pattern_z = ((z - interior_min_z + floor_index as i32) % pattern_height
-                    + pattern_height)
-                    % pattern_height;
-
-                // Access the pattern arrays safely
-                let cell1 = layer1[pattern_z as usize][pattern_x as usize];
-                let cell2 = layer2[pattern_z as usize][pattern_x as usize];
-
-                // Place first layer blocks
-                if let Some(block) = get_interior_block(cell1, false, wall_block) {
+        let extension_start = floor_y + INTERIOR_Y_OFFSET + template.template.size.1;
+        if extension_start <= current_floor_ceiling {
+            for (x, z) in &wall_positions {
+                for y in extension_start..=current_floor_ceiling {
                     editor.set_block_absolute(
-                        block,
-                        x,
-                        floor_y + y_offset + abs_terrain_offset,
-                        z,
-                        None,
-                        None,
-                    );
-
-                    // If this is a wall in layer 1, add to wall positions to extend later
-                    if cell1 == 'W' {
-                        wall_positions.push((x, z));
-                    }
-                    // If this is a door in layer 1, add to door positions to add wall above later
-                    else if cell1 == 'D' {
-                        door_positions.push((x, z));
-                    }
-                }
-
-                // Place second layer blocks
-                if let Some(block) = get_interior_block(cell2, true, wall_block) {
-                    editor.set_block_absolute(
-                        block,
-                        x,
-                        floor_y + y_offset + abs_terrain_offset + 1,
-                        z,
+                        wall_block,
+                        *x,
+                        y + abs_terrain_offset,
+                        *z,
                         None,
                         None,
                     );
                 }
             }
-        }
 
-        // Extend walls all the way to the next floor ceiling or roof
-        for (x, z) in &wall_positions {
-            for y in (floor_y + y_offset + 2)..=current_floor_ceiling {
-                editor.set_block_absolute(wall_block, *x, y + abs_terrain_offset, *z, None, None);
-            }
-        }
-
-        // Add wall blocks above doors all the way to the ceiling/next floor
-        for (x, z) in &door_positions {
-            for y in (floor_y + y_offset + 2)..=current_floor_ceiling {
-                editor.set_block_absolute(wall_block, *x, y + abs_terrain_offset, *z, None, None);
+            for (x, z) in &door_positions {
+                for y in extension_start..=current_floor_ceiling {
+                    editor.set_block_absolute(
+                        wall_block,
+                        *x,
+                        y + abs_terrain_offset,
+                        *z,
+                        None,
+                        None,
+                    );
+                }
             }
         }
     }
