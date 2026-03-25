@@ -6,7 +6,7 @@ use crate::element_processing::*;
 use crate::floodfill_cache::FloodFillCache;
 use crate::ground::Ground;
 use crate::map_renderer;
-use crate::osm_parser::ProcessedElement;
+use crate::osm_parser::{ProcessedElement, ProcessedMemberRole};
 use crate::progress::{emit_gui_progress_update, emit_map_preview_ready, emit_open_mcworld_file};
 #[cfg(feature = "gui")]
 use crate::telemetry::{send_log, LogLevel};
@@ -14,6 +14,7 @@ use crate::urban_ground;
 use crate::world_editor::{WorldEditor, WorldFormat};
 use colored::Colorize;
 use indicatif::{ProgressBar, ProgressStyle};
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -26,23 +27,6 @@ pub struct GenerationOptions {
     pub format: WorldFormat,
     pub level_name: Option<String>,
     pub spawn_point: Option<(i32, i32)>,
-}
-
-pub fn generate_world(
-    elements: Vec<ProcessedElement>,
-    xzbbox: XZBBox,
-    llbbox: LLBBox,
-    ground: Ground,
-    args: &Args,
-) -> Result<(), String> {
-    // Default to Java format when called from CLI
-    let options = GenerationOptions {
-        path: args.path.clone(),
-        format: WorldFormat::JavaAnvil,
-        level_name: None,
-        spawn_point: None,
-    };
-    generate_world_with_options(elements, xzbbox, llbbox, ground, args, options).map(|_| ())
 }
 
 /// Generate world with explicit format options (used by GUI for Bedrock support)
@@ -106,6 +90,33 @@ pub fn generate_world_with_options(
     let mut current_progress_prcs: f64 = 25.0;
     let mut last_emitted_progress: f64 = current_progress_prcs;
 
+    // Pre-scan: detect building relation outlines that should be suppressed.
+    // Only applies to type=building relations (NOT type=multipolygon).
+    // When a type=building relation has "part" members, the outline way should not
+    // render as a standalone building, the individual parts render instead.
+    let suppressed_building_outlines: HashSet<u64> = {
+        let mut outlines = HashSet::new();
+        for element in &elements {
+            if let ProcessedElement::Relation(rel) = element {
+                let is_building_type = rel.tags.get("type").map(|t| t.as_str()) == Some("building");
+                if is_building_type {
+                    let has_parts = rel
+                        .members
+                        .iter()
+                        .any(|m| m.role == ProcessedMemberRole::Part);
+                    if has_parts {
+                        for member in &rel.members {
+                            if member.role == ProcessedMemberRole::Outer {
+                                outlines.insert(member.way.id);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        outlines
+    };
+
     // Process all elements
     for element in elements.into_iter() {
         process_pb.inc(1);
@@ -128,7 +139,18 @@ pub fn generate_world_with_options(
         match &element {
             ProcessedElement::Way(way) => {
                 if way.tags.contains_key("building") || way.tags.contains_key("building:part") {
-                    buildings::generate_buildings(&mut editor, way, args, None, &flood_fill_cache);
+                    // Skip building outlines that are suppressed by building relations with parts.
+                    // The individual building:part ways will render instead.
+                    if !suppressed_building_outlines.contains(&way.id) {
+                        buildings::generate_buildings(
+                            &mut editor,
+                            way,
+                            args,
+                            None,
+                            None,
+                            &flood_fill_cache,
+                        );
+                    }
                 } else if way.tags.contains_key("highway") {
                     highways::generate_highways(
                         &mut editor,
@@ -183,10 +205,14 @@ pub fn generate_world_with_options(
                     highways::generate_aeroway(&mut editor, way, args);
                 } else if way.tags.get("service") == Some(&"siding".to_string()) {
                     highways::generate_siding(&mut editor, way);
+                } else if way.tags.get("tomb") == Some(&"pyramid".to_string()) {
+                    historic::generate_pyramid(&mut editor, way, args, &flood_fill_cache);
                 } else if way.tags.contains_key("man_made") {
                     man_made::generate_man_made(&mut editor, &element, args);
                 } else if way.tags.contains_key("power") {
                     power::generate_power(&mut editor, &element);
+                } else if way.tags.contains_key("place") {
+                    landuse::generate_place(&mut editor, way, args, &flood_fill_cache);
                 }
                 // Release flood fill cache entry for this way
                 flood_fill_cache.remove_way(way.id);
@@ -231,12 +257,16 @@ pub fn generate_world_with_options(
                 }
             }
             ProcessedElement::Relation(rel) => {
-                if rel.tags.contains_key("building") || rel.tags.contains_key("building:part") {
+                let is_building_relation = rel.tags.contains_key("building")
+                    || rel.tags.contains_key("building:part")
+                    || rel.tags.get("type").map(|t| t.as_str()) == Some("building");
+                if is_building_relation {
                     buildings::generate_building_from_relation(
                         &mut editor,
                         rel,
                         args,
                         &flood_fill_cache,
+                        &xzbbox,
                     );
                 } else if rel.tags.contains_key("water")
                     || rel
@@ -356,28 +386,24 @@ pub fn generate_world_with_options(
                     if !editor.check_for_block_absolute(x, ground_y, z, Some(&[STONE]), None) {
                         if is_urban {
                             // Urban area: smooth stone ground
-                            editor.set_block_absolute(SMOOTH_STONE, x, ground_y, z, None, None);
+                            editor.set_block_if_absent_absolute(SMOOTH_STONE, x, ground_y, z);
                         } else {
                             // Rural/natural area: grass and dirt
-                            editor.set_block_absolute(GRASS_BLOCK, x, ground_y, z, None, None);
+                            editor.set_block_if_absent_absolute(GRASS_BLOCK, x, ground_y, z);
                         }
-                        editor.set_block_absolute(DIRT, x, ground_y - 1, z, None, None);
-                        editor.set_block_absolute(DIRT, x, ground_y - 2, z, None, None);
+                        editor.set_block_if_absent_absolute(DIRT, x, ground_y - 1, z);
+                        editor.set_block_if_absent_absolute(DIRT, x, ground_y - 2, z);
                     }
 
                     // Fill underground with stone
                     if args.fillground {
-                        // Fill from bedrock+1 to 3 blocks below ground with stone
-                        editor.fill_blocks_absolute(
+                        editor.fill_column_absolute(
                             STONE,
                             x,
+                            z,
                             MIN_Y + 1,
-                            z,
-                            x,
                             ground_y - 3,
-                            z,
-                            None,
-                            None,
+                            true, // skip_existing: don't overwrite blocks placed by element processing
                         );
                     }
                     // Generate a bedrock level at MIN_Y
@@ -415,7 +441,9 @@ pub fn generate_world_with_options(
     ground_pb.finish();
 
     // Save world
-    editor.save();
+    if let Err(e) = editor.save() {
+        return Err(e.to_string());
+    }
 
     emit_gui_progress_update(99.0, "Finalizing world...");
 
@@ -434,16 +462,18 @@ pub fn generate_world_with_options(
         );
 
         // Always update spawn Y since we now always set a spawn point (user-selected or default)
-        if let Err(e) = update_player_spawn_y_after_generation(
-            &args.path,
-            bbox_string,
-            args.scale,
-            ground.as_ref(),
-        ) {
-            let warning_msg = format!("Failed to update spawn point Y coordinate: {}", e);
-            eprintln!("Warning: {}", warning_msg);
-            #[cfg(feature = "gui")]
-            send_log(LogLevel::Warning, &warning_msg);
+        if let Some(ref world_path) = args.path {
+            if let Err(e) = update_player_spawn_y_after_generation(
+                world_path,
+                bbox_string,
+                args.scale,
+                ground.as_ref(),
+            ) {
+                let warning_msg = format!("Failed to update spawn point Y coordinate: {}", e);
+                eprintln!("Warning: {}", warning_msg);
+                #[cfg(feature = "gui")]
+                send_log(LogLevel::Warning, &warning_msg);
+            }
         }
     }
 

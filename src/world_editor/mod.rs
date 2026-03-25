@@ -36,7 +36,51 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 #[cfg(feature = "gui")]
+use crate::progress::emit_gui_error;
+#[cfg(feature = "gui")]
 use crate::telemetry::{send_log, LogLevel};
+
+/// Walks the error chain to determine whether a save failure was caused by
+/// insufficient disk space.
+///
+/// Source chain entries (`err.source()` returns `&(dyn Error + 'static)`) are
+/// inspected via `io::Error` downcast, checking `ErrorKind::StorageFull` (stable
+/// since Rust 1.83) and raw OS error codes (112 = Windows `ERROR_DISK_FULL`,
+/// 28 = Unix `ENOSPC`). The top-level error and any entries that cannot be
+/// downcast to `io::Error` use Display substring matching as fallback (handles
+/// wrappers like `fastanvil::RegionError` that forward the OS message in their
+/// Display string but do not expose `io::Error` in the source chain).
+fn is_disk_full_error(err: &dyn std::error::Error) -> bool {
+    // Fallback string check on the top-level error, which may not be downcastable
+    // without a 'static bound on the parameter.
+    let s = err.to_string();
+    if s.contains("os error 112") || s.contains("os error 28") || s.contains("StorageFull") {
+        return true;
+    }
+
+    // Walk the source chain. source() yields &(dyn Error + 'static), which
+    // allows downcasting to concrete types via the inherent downcast_ref method.
+    let mut source = err.source();
+    while let Some(e) = source {
+        // Primary: downcast to io::Error for structured ErrorKind / OS code checks.
+        if let Some(io_err) = e.downcast_ref::<std::io::Error>() {
+            if io_err.kind() == std::io::ErrorKind::StorageFull {
+                return true;
+            }
+            if matches!(io_err.raw_os_error(), Some(112) | Some(28)) {
+                return true;
+            }
+        }
+        // Fallback: string check for wrappers that don't expose io::Error directly.
+        let s = e.to_string();
+        if s.contains("os error 112") || s.contains("os error 28") || s.contains("StorageFull") {
+            return true;
+        }
+        source = e.source();
+    }
+
+    false
+}
 
 /// World format to generate
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -75,8 +119,10 @@ pub struct WorldEditor<'a> {
     ground: Option<Arc<Ground>>,
     format: WorldFormat,
     /// Optional level name for Bedrock worlds (e.g., "Arnis World: New York City")
+    #[cfg(feature = "bedrock")]
     bedrock_level_name: Option<String>,
     /// Optional spawn point for Bedrock worlds (x, z coordinates)
+    #[cfg(feature = "bedrock")]
     bedrock_spawn_point: Option<(i32, i32)>,
 }
 
@@ -93,7 +139,9 @@ impl<'a> WorldEditor<'a> {
             llbbox,
             ground: None,
             format: WorldFormat::JavaAnvil,
+            #[cfg(feature = "bedrock")]
             bedrock_level_name: None,
+            #[cfg(feature = "bedrock")]
             bedrock_spawn_point: None,
         }
     }
@@ -107,8 +155,12 @@ impl<'a> WorldEditor<'a> {
         xzbbox: &'a XZBBox,
         llbbox: LLBBox,
         format: WorldFormat,
-        bedrock_level_name: Option<String>,
-        bedrock_spawn_point: Option<(i32, i32)>,
+        #[cfg_attr(not(feature = "bedrock"), allow(unused_variables))] bedrock_level_name: Option<
+            String,
+        >,
+        #[cfg_attr(not(feature = "bedrock"), allow(unused_variables))] bedrock_spawn_point: Option<
+            (i32, i32),
+        >,
     ) -> Self {
         Self {
             world_dir,
@@ -117,7 +169,9 @@ impl<'a> WorldEditor<'a> {
             llbbox,
             ground: None,
             format,
+            #[cfg(feature = "bedrock")]
             bedrock_level_name,
+            #[cfg(feature = "bedrock")]
             bedrock_spawn_point,
         }
     }
@@ -604,45 +658,6 @@ impl<'a> WorldEditor<'a> {
         }
     }
 
-    /// Fills a cuboid area with the specified block between two coordinates using absolute Y values.
-    #[allow(clippy::too_many_arguments)]
-    #[inline]
-    pub fn fill_blocks_absolute(
-        &mut self,
-        block: Block,
-        x1: i32,
-        y1_absolute: i32,
-        z1: i32,
-        x2: i32,
-        y2_absolute: i32,
-        z2: i32,
-        override_whitelist: Option<&[Block]>,
-        override_blacklist: Option<&[Block]>,
-    ) {
-        let (min_x, max_x) = if x1 < x2 { (x1, x2) } else { (x2, x1) };
-        let (min_y, max_y) = if y1_absolute < y2_absolute {
-            (y1_absolute, y2_absolute)
-        } else {
-            (y2_absolute, y1_absolute)
-        };
-        let (min_z, max_z) = if z1 < z2 { (z1, z2) } else { (z2, z1) };
-
-        for x in min_x..=max_x {
-            for absolute_y in min_y..=max_y {
-                for z in min_z..=max_z {
-                    self.set_block_absolute(
-                        block,
-                        x,
-                        absolute_y,
-                        z,
-                        override_whitelist,
-                        override_blacklist,
-                    );
-                }
-            }
-        }
-    }
-
     /// Checks for a block at the given coordinates.
     #[inline]
     pub fn check_for_block(&self, x: i32, y: i32, z: i32, whitelist: Option<&[Block]>) -> bool {
@@ -706,8 +721,47 @@ impl<'a> WorldEditor<'a> {
         self.world.get_block(x, absolute_y, z).is_some()
     }
 
+    /// Sets a block only if no modification has been recorded yet at this
+    /// position (i.e. the in-memory overlay still holds AIR).
+    ///
+    /// This is faster than `set_block_absolute` with `None` whitelists/blacklists
+    /// because it avoids the double HashMap traversal.
+    #[inline]
+    pub fn set_block_if_absent_absolute(&mut self, block: Block, x: i32, absolute_y: i32, z: i32) {
+        if !self.xzbbox.contains(&XZPoint::new(x, z)) {
+            return;
+        }
+        self.world.set_block_if_absent(x, absolute_y, z, block);
+    }
+
+    /// Fills an entire column from y_min to y_max with one block type.
+    ///
+    /// Resolves region/chunk once instead of per-Y-level, making underground
+    /// fill (`--fillground`) dramatically faster.
+    #[inline]
+    pub fn fill_column_absolute(
+        &mut self,
+        block: Block,
+        x: i32,
+        z: i32,
+        y_min: i32,
+        y_max: i32,
+        skip_existing: bool,
+    ) {
+        if !self.xzbbox.contains(&XZPoint::new(x, z)) {
+            return;
+        }
+        self.world
+            .fill_column(x, z, y_min, y_max, block, skip_existing);
+    }
+
     /// Saves all changes made to the world by writing to the appropriate format.
-    pub fn save(&mut self) {
+    ///
+    /// Returns `Err` on I/O failure so callers can abort the generation pipeline
+    /// cleanly. A user-facing error message is also emitted via `emit_gui_error`
+    /// before returning so the GUI is notified regardless of how the caller handles
+    /// the `Result`.
+    pub fn save(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         println!(
             "Generating world for: {}",
             match self.format {
@@ -716,10 +770,31 @@ impl<'a> WorldEditor<'a> {
             }
         );
 
+        // Compact sections before saving: collapses uniform Full(Vec) sections
+        // (e.g. all-STONE from --fillground) back to Uniform, freeing ~4 KiB each.
+        self.world.compact_sections();
+
         match self.format {
-            WorldFormat::JavaAnvil => self.save_java(),
+            WorldFormat::JavaAnvil => {
+                if let Err(e) = self.save_java() {
+                    let user_msg = if is_disk_full_error(e.as_ref()) {
+                        "Not enough disk space available.".to_string()
+                    } else {
+                        format!("Failed to save world: {}", e)
+                    };
+                    eprintln!("{}", user_msg);
+                    #[cfg(feature = "gui")]
+                    {
+                        send_log(LogLevel::Error, &user_msg);
+                        emit_gui_error(&user_msg);
+                    }
+                    return Err(e);
+                }
+            }
             WorldFormat::BedrockMcWorld => self.save_bedrock(),
         }
+
+        Ok(())
     }
 
     #[allow(unreachable_code)]

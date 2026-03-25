@@ -111,6 +111,7 @@ pub struct ProcessedWay {
 pub enum ProcessedMemberRole {
     Outer,
     Inner,
+    Part,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -272,17 +273,24 @@ pub fn parse_osm_data(
             continue;
         };
 
-        // Process multipolygons and boundary relations
+        // Process multipolygons and building relations
         let relation_type = tags.get("type").map(|x: &String| x.as_str());
-        if relation_type != Some("multipolygon") && relation_type != Some("boundary") {
+        if relation_type != Some("multipolygon") && relation_type != Some("building") {
             continue;
         };
 
+        let is_building_relation = relation_type == Some("building")
+            || tags.contains_key("building")
+            || tags.contains_key("building:part");
+
         // Water relations require unclipped ways for ring merging in water_areas.rs
-        // Boundary relations also require unclipped ways for proper ring assembly
+        // Building multipolygon relations also need unclipped ways so that
+        // open outer-way segments can be merged into closed rings before clipping
         let is_water_relation = is_water_element(tags);
-        let is_boundary_relation = tags.contains_key("boundary");
-        let keep_unclipped = is_water_relation || is_boundary_relation;
+        let is_building_multipolygon = (tags.contains_key("building")
+            || tags.contains_key("building:part"))
+            && relation_type == Some("multipolygon");
+        let keep_unclipped = is_water_relation || is_building_multipolygon;
 
         let members: Vec<ProcessedMember> = element
             .members
@@ -293,10 +301,25 @@ pub fn parse_osm_data(
                     return None;
                 }
 
-                let role = match mem.role.as_str() {
-                    "outer" => ProcessedMemberRole::Outer,
-                    "inner" => ProcessedMemberRole::Inner,
-                    _ => return None,
+                let trimmed_role = mem.role.trim();
+                let role = if trimmed_role.eq_ignore_ascii_case("outer")
+                    || trimmed_role.eq_ignore_ascii_case("outline")
+                {
+                    ProcessedMemberRole::Outer
+                } else if trimmed_role.eq_ignore_ascii_case("inner") {
+                    ProcessedMemberRole::Inner
+                } else if trimmed_role.eq_ignore_ascii_case("part") {
+                    if relation_type == Some("building") {
+                        // "part" role only applies to type=building relations.
+                        ProcessedMemberRole::Part
+                    } else {
+                        // For multipolygon relations, "part" is not a valid role, skip.
+                        return None;
+                    }
+                } else if is_building_relation {
+                    ProcessedMemberRole::Outer
+                } else {
+                    return None;
                 };
 
                 // Check if the way exists in ways_map
@@ -308,8 +331,8 @@ pub fn parse_osm_data(
                     }
                 };
 
-                // Water and boundary relations: keep unclipped for ring merging
-                // Other relations: clip member ways now
+                // If keep_unclipped is true (e.g., certain water or building multipolygon
+                // relations), keep member ways unclipped for ring merging; otherwise clip now.
                 let final_way = if keep_unclipped {
                     way
                 } else {

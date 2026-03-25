@@ -4,7 +4,7 @@ use crate::progress::{emit_gui_error, emit_gui_progress_update, is_running_with_
 #[cfg(feature = "gui")]
 use crate::telemetry::{send_log, LogLevel};
 use colored::Colorize;
-use rand::seq::SliceRandom;
+use rand::prelude::IndexedRandom;
 use reqwest::blocking::Client;
 use reqwest::blocking::ClientBuilder;
 use serde::Deserialize;
@@ -18,6 +18,7 @@ use std::time::Duration;
 fn download_with_reqwest(url: &str, query: &str) -> Result<String, Box<dyn std::error::Error>> {
     let client: Client = ClientBuilder::new()
         .timeout(Duration::from_secs(360))
+        .user_agent(concat!("arnis/", env!("CARGO_PKG_VERSION")))
         .build()?;
 
     let response: Result<reqwest::blocking::Response, reqwest::Error> =
@@ -33,7 +34,15 @@ fn download_with_reqwest(url: &str, query: &str) -> Result<String, Box<dyn std::
                 }
                 Ok(text)
             } else {
-                Err(format!("Error! Received response code: {}", resp.status()).into())
+                let status = resp.status();
+                let user_msg = match status.as_u16() {
+                    429 => "Rate limited. Try again later.".to_string(),
+                    403 => "Server overloaded. Try again.".to_string(),
+                    500 | 502 | 503 | 504 => "Server unavailable. Try again.".to_string(),
+                    _ => format!("Response code: {}", status.as_u16()),
+                };
+                eprintln!("{}", format!("Error! {user_msg}").red().bold());
+                Err(format!("Error! {user_msg}").into())
             }
         }
         Err(e) => {
@@ -112,12 +121,12 @@ pub fn fetch_data_from_overpass(
         "https://overpass-api.de/api/interpreter",
         "https://lz4.overpass-api.de/api/interpreter",
         "https://z.overpass-api.de/api/interpreter",
-        //"https://overpass.kumi.systems/api/interpreter", // This server is not reliable anymore
-        //"https://overpass.private.coffee/api/interpreter", // This server is not reliable anymore
     ];
-    let fallback_api_servers: Vec<&str> =
-        vec!["https://maps.mail.ru/osm/tools/overpass/api/interpreter"];
-    let mut url: &&str = api_servers.choose(&mut rand::thread_rng()).unwrap();
+    let fallback_api_servers: Vec<&str> = vec![
+        "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+        "https://overpass.private.coffee/api/interpreter",
+    ];
+    let mut url: &&str = api_servers.choose(&mut rand::rng()).unwrap();
 
     // Generate Overpass API query for bounding box
     let query: String = format!(
@@ -139,13 +148,13 @@ pub fn fetch_data_from_overpass(
         nwr["barrier"];
         nwr["entrance"];
         nwr["door"];
-        nwr["boundary"];
         nwr["power"];
         nwr["historic"];
         nwr["emergency"];
         nwr["advertising"];
         nwr["man_made"];
         nwr["aeroway"];
+        way["place"];
         way;
     )->.relsinbbox;
     (
@@ -184,10 +193,11 @@ pub fn fetch_data_from_overpass(
                         return Err(error);
                     }
 
-                    println!("Request failed. Switching to fallback url...");
-                    url = fallback_api_servers
-                        .choose(&mut rand::thread_rng())
-                        .unwrap();
+                    if download_method != "requests" {
+                        eprintln!("Request failed: {error}");
+                    }
+                    println!("Switching to fallback server...");
+                    url = fallback_api_servers.choose(&mut rand::rng()).unwrap();
                     attempt += 1;
                 }
             }
@@ -244,11 +254,14 @@ pub fn fetch_data_from_overpass(
 
 /// Fetches a short area name using Nominatim for the given lat/lon
 pub fn fetch_area_name(lat: f64, lon: f64) -> Result<Option<String>, Box<dyn std::error::Error>> {
-    let client = Client::builder().timeout(Duration::from_secs(20)).build()?;
+    let client = Client::builder()
+        .timeout(Duration::from_secs(20))
+        .user_agent(concat!("arnis/", env!("CARGO_PKG_VERSION")))
+        .build()?;
 
     let url = format!("https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat={lat}&lon={lon}&addressdetails=1");
 
-    let resp = client.get(&url).header("User-Agent", "arnis-rust").send()?;
+    let resp = client.get(&url).send()?;
 
     if !resp.status().is_success() {
         return Ok(None);

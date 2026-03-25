@@ -28,10 +28,12 @@ mod test_utilities;
 mod urban_ground;
 mod version_check;
 mod world_editor;
+mod world_utils;
 
 use args::Args;
 use clap::Parser;
 use colored::*;
+use std::path::PathBuf;
 use std::{env, fs, io::Write};
 
 #[cfg(feature = "gui")]
@@ -91,6 +93,54 @@ fn run_cli() {
     // Parse input arguments
     let args: Args = Args::parse();
 
+    // Validate arguments (path requirements differ between Java and Bedrock)
+    if let Err(e) = args::validate_args(&args) {
+        eprintln!("{}: {}", "Error".red().bold(), e);
+        std::process::exit(1);
+    }
+
+    // Early guard: --bedrock requires the bedrock cargo feature
+    if args.bedrock && !cfg!(feature = "bedrock") {
+        eprintln!(
+            "{}: The --bedrock flag requires the 'bedrock' feature. Rebuild with: cargo build --features bedrock",
+            "Error".red().bold()
+        );
+        std::process::exit(1);
+    }
+
+    // Determine world format and output path
+    let world_format = if args.bedrock {
+        world_editor::WorldFormat::BedrockMcWorld
+    } else {
+        world_editor::WorldFormat::JavaAnvil
+    };
+
+    // Build the generation output path and level name
+    let (generation_path, level_name) = if args.bedrock {
+        // Bedrock: generate .mcworld file in user-specified path or Desktop
+        let output_dir = args
+            .path
+            .clone()
+            .unwrap_or_else(world_utils::get_bedrock_output_directory);
+        let (output_path, lvl_name) = world_utils::build_bedrock_output(&args.bbox, output_dir);
+        (output_path, Some(lvl_name))
+    } else {
+        // Java: create a new world in the provided output directory
+        let base_dir = args.path.clone().unwrap();
+        let world_path = match world_utils::create_new_world(&base_dir) {
+            Ok(path) => PathBuf::from(path),
+            Err(e) => {
+                eprintln!("{} {}", "Error:".red().bold(), e);
+                std::process::exit(1);
+            }
+        };
+        println!(
+            "Created new world at: {}",
+            world_path.display().to_string().bright_white().bold()
+        );
+        (world_path, None)
+    };
+
     // Fetch data
     let raw_data = match &args.file {
         Some(file) => retrieve_data::fetch_data_from_file(file),
@@ -131,8 +181,79 @@ fn run_cli() {
     // Transform map (parsed_elements). Operations are defined in a json file
     map_transformation::transform_map(&mut parsed_elements, &mut xzbbox, &mut ground);
 
+    // Convert spawn lat/lng to Minecraft XZ coordinates if provided
+    let spawn_point: Option<(i32, i32)> = match (args.spawn_lat, args.spawn_lng) {
+        (Some(lat), Some(lng)) => {
+            use coordinate_system::geographic::LLPoint;
+            use coordinate_system::transformation::CoordTransformer;
+
+            let llpoint = LLPoint::new(lat, lng).unwrap_or_else(|e| {
+                eprintln!("{} Invalid spawn coordinates: {}", "Error:".red().bold(), e);
+                std::process::exit(1);
+            });
+
+            let (transformer, _) = CoordTransformer::llbbox_to_xzbbox(&args.bbox, args.scale)
+                .unwrap_or_else(|e| {
+                    eprintln!(
+                        "{} Failed to convert spawn point: {}",
+                        "Error:".red().bold(),
+                        e
+                    );
+                    std::process::exit(1);
+                });
+
+            let xzpoint = transformer.transform_point(llpoint);
+            Some((xzpoint.x, xzpoint.z))
+        }
+        _ => None,
+    };
+
+    // Build generation options
+    let generation_options = data_processing::GenerationOptions {
+        path: generation_path.clone(),
+        format: world_format,
+        level_name,
+        spawn_point,
+    };
+
     // Generate world
-    let _ = data_processing::generate_world(parsed_elements, xzbbox, args.bbox, ground, &args);
+    match data_processing::generate_world_with_options(
+        parsed_elements,
+        xzbbox,
+        args.bbox,
+        ground,
+        &args,
+        generation_options,
+    ) {
+        Ok(_) => {
+            if args.bedrock {
+                println!(
+                    "{} Bedrock world saved to: {}",
+                    "Done!".green().bold(),
+                    generation_path.display()
+                );
+            }
+
+            // For Java Edition, update spawn point in level.dat if provided
+            if !args.bedrock {
+                if let Some((spawn_x, spawn_z)) = spawn_point {
+                    if let Err(e) =
+                        world_utils::set_spawn_in_level_dat(&generation_path, spawn_x, spawn_z)
+                    {
+                        eprintln!(
+                            "{} Failed to set spawn point in level.dat: {}",
+                            "Warning:".yellow().bold(),
+                            e
+                        );
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("{} {}", "Error:".red().bold(), e);
+            std::process::exit(1);
+        }
+    }
 }
 
 fn main() {

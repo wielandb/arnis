@@ -290,6 +290,43 @@ impl Block {
             209 => "redstone_block",
             210 => "chain",
             211 => "chain",
+            212 => "spruce_door",
+            213 => "spruce_door",
+            214 => "smooth_stone_slab",
+            215 => "glass_pane",
+            216 => "light_gray_terracotta",
+            217 => "oak_slab",
+            218 => "oak_door",
+            219 => "dark_oak_log",
+            220 => "dark_oak_leaves",
+            221 => "jungle_log",
+            222 => "jungle_leaves",
+            223 => "acacia_log",
+            224 => "acacia_leaves",
+            225 => "spruce_leaves",
+            226 => "cyan_stained_glass",
+            227 => "blue_stained_glass",
+            228 => "light_blue_stained_glass",
+            229 => "daylight_detector",
+            230 => "red_stained_glass",
+            231 => "yellow_stained_glass",
+            232 => "purple_stained_glass",
+            233 => "orange_stained_glass",
+            234 => "magenta_stained_glass",
+            235 => "potted_poppy",
+            236 => "oak_trapdoor",
+            237 => "oak_trapdoor",
+            238 => "oak_trapdoor",
+            239 => "oak_trapdoor",
+            240 => "quartz_slab",
+            241 => "dark_oak_trapdoor",
+            242 => "spruce_trapdoor",
+            243 => "birch_trapdoor",
+            244 => "mud_brick_slab",
+            245 => "brick_slab",
+            246 => "potted_red_tulip",
+            247 => "potted_dandelion",
+            248 => "potted_blue_orchid",
             _ => panic!("Invalid id"),
         }
     }
@@ -345,6 +382,13 @@ impl Block {
                     "waterlogged".to_string(),
                     Value::String("false".to_string()),
                 );
+                map
+            })),
+
+            // Oak door lower
+            159 => Some(Value::Compound({
+                let mut map = HashMap::new();
+                map.insert("half".to_string(), Value::String("lower".to_string()));
                 map
             })),
 
@@ -527,6 +571,98 @@ impl Block {
             211 => Some(Value::Compound({
                 let mut map = HashMap::new();
                 map.insert("axis".to_string(), Value::String("z".to_string()));
+                map
+            })),
+            // Spruce door lower
+            212 => Some(Value::Compound({
+                let mut map = HashMap::new();
+                map.insert("half".to_string(), Value::String("lower".to_string()));
+                map
+            })),
+            // Spruce door upper
+            213 => Some(Value::Compound({
+                let mut map = HashMap::new();
+                map.insert("half".to_string(), Value::String("upper".to_string()));
+                map
+            })),
+            // Smooth stone slab (bottom by default)
+            214 => Some(Value::Compound({
+                let mut map = HashMap::new();
+                map.insert("type".to_string(), Value::String("bottom".to_string()));
+                map
+            })),
+            // Oak slab top
+            217 => Some(Value::Compound({
+                let mut map = HashMap::new();
+                map.insert("type".to_string(), Value::String("top".to_string()));
+                map
+            })),
+            // Oak door upper
+            218 => Some(Value::Compound({
+                let mut map = HashMap::new();
+                map.insert("half".to_string(), Value::String("upper".to_string()));
+                map
+            })),
+            // Dark oak leaves
+            220 => Some(Value::Compound({
+                let mut map: HashMap<String, Value> = HashMap::new();
+                map.insert("persistent".to_string(), Value::String("true".to_string()));
+                map
+            })),
+            // Jungle leaves
+            222 => Some(Value::Compound({
+                let mut map: HashMap<String, Value> = HashMap::new();
+                map.insert("persistent".to_string(), Value::String("true".to_string()));
+                map
+            })),
+            // Acacia leaves
+            224 => Some(Value::Compound({
+                let mut map: HashMap<String, Value> = HashMap::new();
+                map.insert("persistent".to_string(), Value::String("true".to_string()));
+                map
+            })),
+            // Spruce leaves
+            225 => Some(Value::Compound({
+                let mut map: HashMap<String, Value> = HashMap::new();
+                map.insert("persistent".to_string(), Value::String("true".to_string()));
+                map
+            })),
+            // Quartz slab (top half) used as window sill
+            240 => Some(Value::Compound({
+                let mut map = HashMap::new();
+                map.insert("type".to_string(), Value::String("top".to_string()));
+                map
+            })),
+            // Open oak trapdoor facing north (hangs flat against wall, looks like shutter)
+            236 => Some(Value::Compound({
+                let mut map = HashMap::new();
+                map.insert("facing".to_string(), Value::String("north".to_string()));
+                map.insert("open".to_string(), Value::String("true".to_string()));
+                map.insert("half".to_string(), Value::String("top".to_string()));
+                map
+            })),
+            // Open oak trapdoor facing south
+            237 => Some(Value::Compound({
+                let mut map = HashMap::new();
+                map.insert("facing".to_string(), Value::String("south".to_string()));
+                map.insert("open".to_string(), Value::String("true".to_string()));
+                map.insert("half".to_string(), Value::String("top".to_string()));
+                map
+            })),
+            // Open oak trapdoor facing east
+            238 => Some(Value::Compound({
+                let mut map = HashMap::new();
+                map.insert("facing".to_string(), Value::String("east".to_string()));
+                map.insert("open".to_string(), Value::String("true".to_string()));
+                map.insert("half".to_string(), Value::String("top".to_string()));
+                map
+            })),
+            // Open oak trapdoor facing west
+            239 => Some(Value::Compound({
+                let mut map = HashMap::new();
+                map.insert("facing".to_string(), Value::String("west".to_string()));
+                map.insert("open".to_string(), Value::String("true".to_string()));
+                map.insert("half".to_string(), Value::String("top".to_string()));
                 map
             })),
             _ => None,
@@ -789,6 +925,43 @@ pub const BRICK_WALL: Block = Block::new(208);
 pub const REDSTONE_BLOCK: Block = Block::new(209);
 pub const CHAIN_X: Block = Block::new(210);
 pub const CHAIN_Z: Block = Block::new(211);
+pub const SPRUCE_DOOR_LOWER: Block = Block::new(212);
+pub const SPRUCE_DOOR_UPPER: Block = Block::new(213);
+pub const SMOOTH_STONE_SLAB: Block = Block::new(214);
+pub const GLASS_PANE: Block = Block::new(215);
+pub const LIGHT_GRAY_TERRACOTTA: Block = Block::new(216);
+pub const OAK_SLAB_TOP: Block = Block::new(217);
+pub const OAK_DOOR_UPPER: Block = Block::new(218);
+pub const DARK_OAK_LOG: Block = Block::new(219);
+pub const DARK_OAK_LEAVES: Block = Block::new(220);
+pub const JUNGLE_LOG: Block = Block::new(221);
+pub const JUNGLE_LEAVES: Block = Block::new(222);
+pub const ACACIA_LOG: Block = Block::new(223);
+pub const ACACIA_LEAVES: Block = Block::new(224);
+pub const SPRUCE_LEAVES: Block = Block::new(225);
+pub const CYAN_STAINED_GLASS: Block = Block::new(226);
+pub const BLUE_STAINED_GLASS: Block = Block::new(227);
+pub const LIGHT_BLUE_STAINED_GLASS: Block = Block::new(228);
+pub const DAYLIGHT_DETECTOR: Block = Block::new(229);
+pub const RED_STAINED_GLASS: Block = Block::new(230);
+pub const YELLOW_STAINED_GLASS: Block = Block::new(231);
+pub const PURPLE_STAINED_GLASS: Block = Block::new(232);
+pub const ORANGE_STAINED_GLASS: Block = Block::new(233);
+pub const MAGENTA_STAINED_GLASS: Block = Block::new(234);
+pub const FLOWER_POT: Block = Block::new(235);
+pub const OAK_TRAPDOOR_OPEN_NORTH: Block = Block::new(236);
+pub const OAK_TRAPDOOR_OPEN_SOUTH: Block = Block::new(237);
+pub const OAK_TRAPDOOR_OPEN_EAST: Block = Block::new(238);
+pub const OAK_TRAPDOOR_OPEN_WEST: Block = Block::new(239);
+pub const QUARTZ_SLAB_TOP: Block = Block::new(240);
+pub const DARK_OAK_TRAPDOOR: Block = Block::new(241);
+pub const SPRUCE_TRAPDOOR: Block = Block::new(242);
+pub const BIRCH_TRAPDOOR: Block = Block::new(243);
+pub const MUD_BRICK_SLAB: Block = Block::new(244);
+pub const BRICK_SLAB: Block = Block::new(245);
+pub const POTTED_RED_TULIP: Block = Block::new(246);
+pub const POTTED_DANDELION: Block = Block::new(247);
+pub const POTTED_BLUE_ORCHID: Block = Block::new(248);
 
 /// Maps a block to its corresponding stair variant
 #[inline]
@@ -840,58 +1013,80 @@ pub static WINDOW_VARIATIONS: [Block; 7] = [
     TINTED_GLASS,
 ];
 
-// Window types for different building styles
+// Residential window options
+pub static RESIDENTIAL_WINDOW_OPTIONS: [Block; 4] = [
+    GLASS,
+    WHITE_STAINED_GLASS,
+    LIGHT_GRAY_STAINED_GLASS,
+    BROWN_STAINED_GLASS,
+];
+
+// Institutional window options (hospital, school, etc.)
+pub static INSTITUTIONAL_WINDOW_OPTIONS: [Block; 3] =
+    [GLASS, WHITE_STAINED_GLASS, LIGHT_GRAY_STAINED_GLASS];
+
+// Hospitality window options (hotel, restaurant)
+pub static HOSPITALITY_WINDOW_OPTIONS: [Block; 2] = [GLASS, WHITE_STAINED_GLASS];
+
+// Industrial window options
+pub static INDUSTRIAL_WINDOW_OPTIONS: [Block; 4] = [
+    GLASS,
+    GRAY_STAINED_GLASS,
+    LIGHT_GRAY_STAINED_GLASS,
+    BROWN_STAINED_GLASS,
+];
+
+// Window types for different building styles (non-deterministic, for backwards compatibility)
 pub fn get_window_block_for_building_type(building_type: &str) -> Block {
     use rand::Rng;
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
+    get_window_block_for_building_type_with_rng(building_type, &mut rng)
+}
 
+/// Deterministic window block selection using provided RNG
+pub fn get_window_block_for_building_type_with_rng(
+    building_type: &str,
+    rng: &mut impl rand::Rng,
+) -> Block {
     match building_type {
-        "residential" | "house" | "apartment" => {
-            let residential_windows = [
-                GLASS,
-                WHITE_STAINED_GLASS,
-                LIGHT_GRAY_STAINED_GLASS,
-                BROWN_STAINED_GLASS,
-            ];
-            residential_windows[rng.gen_range(0..residential_windows.len())]
+        "residential" | "house" | "apartment" | "apartments" => {
+            RESIDENTIAL_WINDOW_OPTIONS[rng.random_range(0..RESIDENTIAL_WINDOW_OPTIONS.len())]
         }
         "hospital" | "school" | "university" => {
-            let institutional_windows = [GLASS, WHITE_STAINED_GLASS, LIGHT_GRAY_STAINED_GLASS];
-            institutional_windows[rng.gen_range(0..institutional_windows.len())]
+            INSTITUTIONAL_WINDOW_OPTIONS[rng.random_range(0..INSTITUTIONAL_WINDOW_OPTIONS.len())]
         }
         "hotel" | "restaurant" => {
-            let hospitality_windows = [GLASS, WHITE_STAINED_GLASS];
-            hospitality_windows[rng.gen_range(0..hospitality_windows.len())]
+            HOSPITALITY_WINDOW_OPTIONS[rng.random_range(0..HOSPITALITY_WINDOW_OPTIONS.len())]
         }
         "industrial" | "warehouse" => {
-            let industrial_windows = [
-                GLASS,
-                GRAY_STAINED_GLASS,
-                LIGHT_GRAY_STAINED_GLASS,
-                BROWN_STAINED_GLASS,
-            ];
-            industrial_windows[rng.gen_range(0..industrial_windows.len())]
+            INDUSTRIAL_WINDOW_OPTIONS[rng.random_range(0..INDUSTRIAL_WINDOW_OPTIONS.len())]
         }
-        _ => WINDOW_VARIATIONS[rng.gen_range(0..WINDOW_VARIATIONS.len())],
+        _ => WINDOW_VARIATIONS[rng.random_range(0..WINDOW_VARIATIONS.len())],
     }
 }
 
-// Random floor block selection
+// Floor block options for buildings
+pub static FLOOR_BLOCK_OPTIONS: [Block; 8] = [
+    WHITE_CONCRETE,
+    GRAY_CONCRETE,
+    LIGHT_GRAY_CONCRETE,
+    POLISHED_ANDESITE,
+    SMOOTH_STONE,
+    STONE_BRICKS,
+    MUD_BRICKS,
+    OAK_PLANKS,
+];
+
+// Random floor block selection (non-deterministic, for backwards compatibility)
 pub fn get_random_floor_block() -> Block {
     use rand::Rng;
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
+    FLOOR_BLOCK_OPTIONS[rng.random_range(0..FLOOR_BLOCK_OPTIONS.len())]
+}
 
-    let floor_options = [
-        WHITE_CONCRETE,
-        GRAY_CONCRETE,
-        LIGHT_GRAY_CONCRETE,
-        POLISHED_ANDESITE,
-        SMOOTH_STONE,
-        STONE_BRICKS,
-        MUD_BRICKS,
-        OAK_PLANKS,
-    ];
-    floor_options[rng.gen_range(0..floor_options.len())]
+/// Deterministic floor block selection using provided RNG
+pub fn get_floor_block_with_rng(rng: &mut impl rand::Rng) -> Block {
+    FLOOR_BLOCK_OPTIONS[rng.random_range(0..FLOOR_BLOCK_OPTIONS.len())]
 }
 
 // Define all predefined colors with their blocks
@@ -1026,7 +1221,7 @@ static DEFINED_COLORS: &[ColorBlockMapping] = &[
 // Function to randomly select building wall block with alternatives
 pub fn get_building_wall_block_for_color(color: RGBTuple) -> Block {
     use rand::Rng;
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     // Find the closest color match
     let closest_color = DEFINED_COLORS
@@ -1034,7 +1229,7 @@ pub fn get_building_wall_block_for_color(color: RGBTuple) -> Block {
         .min_by_key(|(defined_color, _)| crate::colors::rgb_distance(&color, defined_color));
 
     if let Some((_, options)) = closest_color {
-        options[rng.gen_range(0..options.len())]
+        options[rng.random_range(0..options.len())]
     } else {
         // This should never happen, but fallback just in case
         get_fallback_building_block()
@@ -1044,7 +1239,7 @@ pub fn get_building_wall_block_for_color(color: RGBTuple) -> Block {
 // Function to get a random fallback building block when no color attribute is specified
 pub fn get_fallback_building_block() -> Block {
     use rand::Rng;
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     let fallback_options = [
         BLACKSTONE,
@@ -1073,15 +1268,14 @@ pub fn get_fallback_building_block() -> Block {
         STONE_BRICKS,
         WHITE_CONCRETE,
         WHITE_TERRACOTTA,
-        OAK_PLANKS,
     ];
-    fallback_options[rng.gen_range(0..fallback_options.len())]
+    fallback_options[rng.random_range(0..fallback_options.len())]
 }
 
 // Function to get a random castle wall block
 pub fn get_castle_wall_block() -> Block {
     use rand::Rng;
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     let castle_wall_options = [
         STONE_BRICKS,
@@ -1095,5 +1289,5 @@ pub fn get_castle_wall_block() -> Block {
         SMOOTH_STONE,
         BRICK,
     ];
-    castle_wall_options[rng.gen_range(0..castle_wall_options.len())]
+    castle_wall_options[rng.random_range(0..castle_wall_options.len())]
 }

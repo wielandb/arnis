@@ -96,7 +96,7 @@ pub fn generate_leisure(
                 if matches!(leisure_type.as_str(), "park" | "garden" | "nature_reserve")
                     && editor.check_for_block(x, 0, z, Some(&[GRASS_BLOCK]))
                 {
-                    let random_choice: i32 = rng.gen_range(0..1000);
+                    let random_choice: i32 = rng.random_range(0..1000);
 
                     match random_choice {
                         0..30 => {
@@ -129,7 +129,7 @@ pub fn generate_leisure(
 
                 // Add playground or recreation ground features
                 if matches!(leisure_type.as_str(), "playground" | "recreation_ground") {
-                    let random_choice: i32 = rng.gen_range(0..5000);
+                    let random_choice: i32 = rng.random_range(0..5000);
 
                     match random_choice {
                         0..10 => {
@@ -185,41 +185,26 @@ pub fn generate_leisure_from_relation(
     building_footprints: &BuildingFootprintBitmap,
 ) {
     if rel.tags.get("leisure") == Some(&"park".to_string()) {
-        // First generate individual ways with their original tags
+        // Process each outer member way individually using cached flood fill.
+        // We intentionally do not combine all outer nodes into one mega-way,
+        // because that creates a nonsensical polygon spanning the whole relation
+        // extent, misses the flood fill cache, and can cause multi-GB allocations.
         for member in &rel.members {
             if member.role == ProcessedMemberRole::Outer {
+                // Use relation tags so the member inherits the relation's leisure=* type
+                let way_with_rel_tags = ProcessedWay {
+                    id: member.way.id,
+                    nodes: member.way.nodes.clone(),
+                    tags: rel.tags.clone(),
+                };
                 generate_leisure(
                     editor,
-                    &member.way,
+                    &way_with_rel_tags,
                     args,
                     flood_fill_cache,
                     building_footprints,
                 );
             }
         }
-
-        // Then combine all outer ways into one
-        let mut combined_nodes = Vec::new();
-        for member in &rel.members {
-            if member.role == ProcessedMemberRole::Outer {
-                combined_nodes.extend(member.way.nodes.clone());
-            }
-        }
-
-        // Create combined way with relation tags
-        let combined_way = ProcessedWay {
-            id: rel.id,
-            nodes: combined_nodes,
-            tags: rel.tags.clone(),
-        };
-
-        // Generate leisure area from combined way
-        generate_leisure(
-            editor,
-            &combined_way,
-            args,
-            flood_fill_cache,
-            building_footprints,
-        );
     }
 }
